@@ -3,9 +3,9 @@
     python3 scripts/pack_update.py --installer path/to/Alloy_0.2.0_x64-setup.exe \
         --version 0.2.0 --platform windows-x86_64 --kind nsis --notes CHANGELOG.md --out dist-update/
 
-Needs `<installer>.sig` next to the installer (the Tauri bundler writes it when
-TAURI_SIGNING_PRIVATE_KEY is set) and signs manifest.json with the same key through
-`pnpm tauri signer sign` (reads TAURI_SIGNING_PRIVATE_KEY and _PASSWORD from the environment).
+Signs the installer and manifest.json through `pnpm tauri signer sign`, which reads
+TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD from the environment.
+An existing `<installer>.sig` is reused.
 """
 
 import argparse
@@ -39,9 +39,9 @@ def main() -> int:
 
     installer = pathlib.Path(a.installer)
     sig = installer.with_name(installer.name + ".sig")
+    shell = sys.platform == "win32"
     if not sig.exists():
-        print(f"missing {sig}; set TAURI_SIGNING_PRIVATE_KEY when building", file=sys.stderr)
-        return 1
+        subprocess.run(["pnpm", "tauri", "signer", "sign", str(installer)], check=True, shell=shell)
 
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -58,7 +58,6 @@ def main() -> int:
     manifest_path = out / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    shell = sys.platform == "win32"
     subprocess.run(["pnpm", "tauri", "signer", "sign", str(manifest_path)], check=True, shell=shell)
 
     target = out / f"Alloy_{manifest['version']}_{a.platform}.alloyupdate"

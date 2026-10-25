@@ -13,6 +13,10 @@ on:
       run_id:
         description: "Release workflow run id with the built artifacts"
         required: true
+      ref:
+        description: "Private branch, tag or commit to snapshot"
+        required: false
+        default: "main"
 
 jobs:
   promote:
@@ -24,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.ref }}
           path: src
       - uses: actions/download-artifact@v4
         with:
@@ -41,13 +45,36 @@ jobs:
           git rm -rqf . || true
           (cd ../src && git archive HEAD) | tar -x
           git add -A
-          git -c user.name="Elchi" -c user.email="github@elchi.dev" commit -m "Alloy ${{ inputs.tag }}"
-          git tag "${{ inputs.tag }}"
-          git push origin HEAD:main "${{ inputs.tag }}"
+          # The snapshot may already be there (pushed by hand); only commit real changes.
+          git diff --cached --quiet || git -c user.name="Elchi" -c user.email="github@elchi.dev" commit -m "Alloy ${{ inputs.tag }}"
+          git push origin HEAD:main
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${{ inputs.tag }}" >/dev/null; then
+            git tag "${{ inputs.tag }}"
+            git push origin "${{ inputs.tag }}"
+          fi
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.ALLOYMC_TOKEN }}
         run: |
           version="${{ inputs.tag }}"
           awk -v v="## ${version#v}" '$0 ~ "^"v {f=1; next} /^## / && f {exit} f' src/CHANGELOG.md > notes.md
-          gh release create "$version" artifacts/* -R Elchi-dev/AlloyMC --title "Alloy $version" --notes-file notes.md --prerelease
+          cat >> notes.md <<'NOTES'
+
+          ### Install (Windows)
+          Download the `-setup.exe` and run it. It installs for your user, no admin prompt. The installer
+          isn't code-signed yet, so SmartScreen may warn: **More info → Run anyway**.
+
+          ### Install (Linux)
+          Download the `.AppImage`, make it executable (`chmod +x`) and run it. Arch users can also build
+          the package from `packaging/arch`.
+
+          ### Update
+          Already have Alloy? Download the `.alloyupdate` into your Downloads folder and click the gold
+          update button in Alloy's sidebar.
+          NOTES
+          sed -i 's/^          //' notes.md
+          if gh release view "$version" -R Elchi-dev/AlloyMC >/dev/null 2>&1; then
+            gh release upload "$version" artifacts/* -R Elchi-dev/AlloyMC --clobber
+          else
+            gh release create "$version" artifacts/* -R Elchi-dev/AlloyMC --title "Alloy $version" --notes-file notes.md --prerelease
+          fi

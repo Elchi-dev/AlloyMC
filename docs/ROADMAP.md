@@ -2,6 +2,16 @@
 
 Each phase ends when its gate works on a real machine (Windows and Arch).
 
+## Open right now
+
+- Publish v0.1.0 on AlloyMC (Promote from the signed Release run).
+- First signed update: v0.2.0 goes out as a `.alloyupdate` and must install with one click on
+  Windows and as an AppImage.
+- Google sign-in for Alloy accounts waits for a domain and a privacy notice.
+- Releases move to the server once it runs: CI publishes to it with `SERVER_SECRET` (HMAC,
+  the secret never travels), and Alloy checks the server for updates. Update files stay
+  signed with the release key, so a compromised server cannot ship code.
+
 | Phase | Scope | Gate |
 | --- | --- | --- |
 | **0. Foundation** (done) | Core crate, Microsoft + offline sign-in, vanilla/Fabric/Quilt install and launch, Java runtimes, Modrinth install, modpack import, UI shell | Vanilla 26.2 and Fabric + Sodium reach the title screen |

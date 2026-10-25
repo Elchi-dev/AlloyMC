@@ -55,15 +55,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        shell: bash
-        run: |
-          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "Signing enabled"
-            pnpm tauri build --bundles ${{ matrix.bundle }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
-          else
-            echo "::warning::No signing key: building unsigned (no .alloyupdate)"
-            pnpm tauri build --bundles ${{ matrix.bundle }}
-          fi
+        run: pnpm tauri build --bundles ${{ matrix.bundle }}
 
       - name: Collect
         shell: bash
@@ -77,10 +69,12 @@ jobs:
             installer=$(ls target/release/bundle/appimage/*.AppImage | head -1)
           fi
           cp "$installer" out/
-          if [ -f "$installer.sig" ]; then
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             python scripts/pack_update.py --installer "$installer" --version "$version" \
               --platform ${{ matrix.platform }} --kind ${{ matrix.bundle }} --notes CHANGELOG.md --out pack
             cp pack/*.alloyupdate out/
+          else
+            echo "::warning::No signing key: no .alloyupdate for this build"
           fi
           ls -la out
 
