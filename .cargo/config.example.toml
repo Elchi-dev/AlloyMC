@@ -1,0 +1,4 @@
+# Copy to .cargo/config.toml (git-ignored) for local builds with a built-in CurseForge key.
+# CI reads the same value from the ALLOY_CURSEFORGE_KEY repository secret.
+[env]
+ALLOY_CURSEFORGE_KEY = ""

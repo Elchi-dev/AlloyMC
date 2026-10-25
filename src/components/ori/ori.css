@@ -1,0 +1,61 @@
+/* Ori's motion. Every loop is slow and small; reduced motion or .ori-still stops all of it. */
+.ori { display: block; overflow: visible; flex: none; }
+.ori g, .ori circle, .ori path, .ori rect, .ori text, .ori ellipse { transform-box: view-box; }
+.ori-bob { animation: ori-bob 3.4s ease-in-out infinite; }
+.ori-hop { animation: ori-hop 0.62s cubic-bezier(0.3, 1.5, 0.5, 1) infinite alternate; }
+.ori-breathe { transform-origin: 200px 290px; animation: ori-breathe 3.8s ease-in-out infinite; }
+.ori-shake { transform-origin: 200px 300px; animation: ori-shake 2.6s ease-in-out infinite; }
+.ori-aura { transform-origin: 200px 200px; animation: ori-aura 4.6s ease-in-out infinite; }
+.ori-blink { transform-origin: 200px 190px; animation: ori-blink 5.2s infinite; }
+.ori-wave { transform-origin: 0px 22px; animation: ori-wave 0.5s ease-in-out infinite alternate; }
+.ori-cheer { animation: ori-cheer 0.62s cubic-bezier(0.3, 1.5, 0.5, 1) infinite alternate; }
+.ori-tap { animation: ori-tap 0.36s ease-in-out infinite alternate; }
+.ori-tap2 { animation-delay: 0.18s; }
+.ori-glow { transform-origin: 201px 214px; animation: ori-glowp 1.8s ease-in-out infinite; }
+.ori-peer { animation: ori-peer 3s ease-in-out infinite; }
+.ori-scan { transform-origin: 240px 180px; animation: ori-scan 4s ease-in-out infinite; }
+.ori-scribble { animation: ori-scribble 0.9s ease-in-out infinite; }
+.ori-present { transform-origin: 330px 190px; animation: ori-present 2.4s ease-in-out infinite; }
+.ori-flash { transform-origin: 345px 90px; animation: ori-flash 2.2s ease-out infinite; }
+.ori-flag { transform-origin: 338px 82px; animation: ori-flag 0.45s ease-in-out infinite alternate; }
+.ori-pulse { animation: ori-pulse 1.4s ease-in-out infinite; }
+.ori-dot { animation: ori-dot 1.3s ease-in-out infinite; }
+.ori-d2 { animation-delay: 0.2s; }
+.ori-d3 { animation-delay: 0.4s; }
+.ori-spark { transform-box: fill-box; transform-origin: center; animation: ori-spark 1.4s ease-in-out infinite; }
+.ori-twinkle { animation: ori-twinkle 2.2s ease-in-out infinite alternate; }
+.ori-s2 { animation-delay: 0.35s; }
+.ori-s3 { animation-delay: 0.7s; }
+.ori-s4 { animation-delay: 1.05s; }
+.ori-z { opacity: 0; animation: ori-z 2.8s ease-in infinite; }
+.ori-z2 { animation-delay: 0.93s; }
+.ori-z3 { animation-delay: 1.86s; }
+.ori-mini { animation: ori-bob 2.2s ease-in-out infinite; }
+.ori-m2 { animation-delay: 0.5s; }
+.ori-m3 { animation-delay: 1s; }
+
+@keyframes ori-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+@keyframes ori-hop { from { transform: translateY(0); } to { transform: translateY(-16px); } }
+@keyframes ori-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03, 0.975); } }
+@keyframes ori-shake { 0%, 70%, 100% { transform: rotate(0); } 76% { transform: rotate(-4deg); } 84% { transform: rotate(3.5deg); } 92% { transform: rotate(-1.5deg); } }
+@keyframes ori-aura { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.08); opacity: 1; } }
+@keyframes ori-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+@keyframes ori-wave { from { transform: rotate(-14deg); } to { transform: rotate(16deg); } }
+@keyframes ori-cheer { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+@keyframes ori-tap { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+@keyframes ori-glowp { 0%, 100% { opacity: 0.14; } 50% { opacity: 0.3; } }
+@keyframes ori-peer { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-4px, 3px); } }
+@keyframes ori-scan { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-6deg); } }
+@keyframes ori-scribble { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(-6px, 2px); } 50% { transform: translate(-2px, -2px); } 75% { transform: translate(-8px, 1px); } }
+@keyframes ori-present { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(5deg); } }
+@keyframes ori-flash { 0%, 55% { opacity: 0; transform: scale(0.6); } 62% { opacity: 1; transform: scale(1); } 85%, 100% { opacity: 0; transform: scale(1.15); } }
+@keyframes ori-flag { from { transform: skewY(-10deg) scaleX(0.86); } to { transform: skewY(8deg) scaleX(1); } }
+@keyframes ori-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+@keyframes ori-dot { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+@keyframes ori-spark { 0%, 100% { transform: scale(0.25); opacity: 0.15; } 50% { transform: scale(1); opacity: 1; } }
+@keyframes ori-twinkle { from { opacity: 0.2; } to { opacity: 1; } }
+@keyframes ori-z { 0% { transform: translate(0, 0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(30px, -70px); opacity: 0; } }
+
+.ori-still *, [data-motion="off"] .ori * { animation: none !important; }
+[data-motion="calm"] .ori * { animation-duration: 6s !important; }
+@media (prefers-reduced-motion: reduce) { .ori * { animation: none !important; } }

@@ -1,0 +1,53 @@
+name: Promote to AlloyMC
+
+# Publishes a release to the public repo: a one-commit snapshot of the tagged source and a
+# GitHub release with the installers and update files from the Release workflow.
+# Needs ALLOYMC_TOKEN: a fine-grained token with "Contents: read and write" on Elchi-dev/AlloyMC.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to promote, e.g. v0.2.0"
+        required: true
+      run_id:
+        description: "Release workflow run id with the built artifacts"
+        required: true
+
+jobs:
+  promote:
+    if: github.repository == 'Elchi-dev/alloy'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: src
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: artifacts
+          merge-multiple: true
+      - name: Snapshot source to AlloyMC
+        env:
+          TOKEN: ${{ secrets.ALLOYMC_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TOKEN}@github.com/Elchi-dev/AlloyMC.git" public
+          cd public
+          git rm -rqf . || true
+          (cd ../src && git archive HEAD) | tar -x
+          git add -A
+          git -c user.name="Elchi" -c user.email="github@elchi.dev" commit -m "Alloy ${{ inputs.tag }}"
+          git tag "${{ inputs.tag }}"
+          git push origin HEAD:main "${{ inputs.tag }}"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.ALLOYMC_TOKEN }}
+        run: |
+          version="${{ inputs.tag }}"
+          awk -v v="## ${version#v}" '$0 ~ "^"v {f=1; next} /^## / && f {exit} f' src/CHANGELOG.md > notes.md
+          gh release create "$version" artifacts/* -R Elchi-dev/AlloyMC --title "Alloy $version" --notes-file notes.md --prerelease

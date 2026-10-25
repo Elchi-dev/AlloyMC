@@ -1,0 +1,91 @@
+name: Release
+
+# Builds the public Alloy (no CurseForge key) for Windows and Linux when a v* tag is pushed
+# to the private repo. With the signing secrets set, it also signs the installers and packs
+# `.alloyupdate` files for one-click updates. Artifacts are uploaded to the run; the Promote
+# workflow (or a maintainer) publishes them on AlloyMC.
+#
+# Secrets (private repo only):
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD   updater signing
+#   ALLOYMC_TOKEN                                                    optional: publish to AlloyMC
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'Elchi-dev/alloy'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundle: nsis
+            platform: windows-x86_64
+          - os: ubuntu-22.04
+            bundle: appimage
+            platform: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Public builds never carry the CurseForge key.
+      ALLOY_CURSEFORGE_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libdbus-1-dev patchelf
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "Signing enabled"
+            pnpm tauri build --bundles ${{ matrix.bundle }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          else
+            echo "::warning::No signing key: building unsigned (no .alloyupdate)"
+            pnpm tauri build --bundles ${{ matrix.bundle }}
+          fi
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          version="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "${{ matrix.bundle }}" = "nsis" ]; then
+            installer=$(ls target/release/bundle/nsis/*-setup.exe | head -1)
+          else
+            installer=$(ls target/release/bundle/appimage/*.AppImage | head -1)
+          fi
+          cp "$installer" out/
+          if [ -f "$installer.sig" ]; then
+            python scripts/pack_update.py --installer "$installer" --version "$version" \
+              --platform ${{ matrix.platform }} --kind ${{ matrix.bundle }} --notes CHANGELOG.md --out pack
+            cp pack/*.alloyupdate out/
+          fi
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alloy-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error

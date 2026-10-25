@@ -1,0 +1,15 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/
+*.log
+.DS_Store
+smoke-data/
+packaging/arch/pkg/
+packaging/arch/src/
+packaging/arch/*.pkg.tar.zst
+
+# Secrets stay local (see config/*.example.toml)
+.cargo/config.toml
+config/server-secrets.toml
+*.key

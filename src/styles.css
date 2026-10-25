@@ -1,0 +1,693 @@
+@import "tailwindcss";
+@import "@fontsource-variable/onest";
+@import "@fontsource/pixelify-sans/500.css";
+@import "@fontsource/pixelify-sans/700.css";
+
+/* Charcoal surfaces from the Alloy artwork, one gold accent from the logo.
+   Molten colours appear only where metal is hot. Status colours are only used for status. */
+@theme {
+  --color-slate-950: #111216;
+  --color-slate-900: #17191e;
+  --color-slate-850: #1c1e24;
+  --color-slate-800: #23252c;
+  --color-slate-700: #2d3038;
+  --color-line: #353842;
+  --color-line-soft: #282a32;
+  --color-ink: #eceef2;
+  --color-ink-2: #aab0bb;
+  --color-ink-3: #767c88;
+
+  --color-gold: #f8c95a;
+  --color-gold-hi: #ffdc88;
+  --color-gold-deep: #d99b22;
+  --color-gold-edge: #9c6a10;
+  --color-gold-ink: #2b1d00;
+  --color-steel: #8d969d;
+  --color-molten: #ff9a2a;
+  --color-molten-deep: #ff5a12;
+
+  --color-grass: #6fbf4a;
+  --color-redstone: #e5484d;
+  --color-lapis: #5b8def;
+
+  --font-sans: "Onest Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-pixel: "Pixelify Sans", "Onest Variable", ui-sans-serif, sans-serif;
+
+  --radius-ctl: 6px;
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Motion tokens: the same family as Orbit (docs/MOTION.md). */
+:root {
+  --t-tap: 90ms;
+  --t-quick: 160ms;
+  --t-move: 260ms;
+  --t-show: 420ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 0.75, 0.1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --stagger: 35ms;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--color-slate-950);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+    cursor: default;
+  }
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+    transition: outline-offset var(--t-quick) var(--spring);
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-gold) 35%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-slate-700) transparent;
+  }
+}
+
+@layer components {
+  /* ---------- The Play block: gold, bevelled, sinks when pressed ---------- */
+  .play-block {
+    --edge: 5px;
+    --heat: 0;
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    font-family: var(--font-pixel);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-gold-ink);
+    background: linear-gradient(var(--color-gold-hi), var(--color-gold) 45%, var(--color-gold-deep));
+    border-radius: 3px;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      inset 0 -2px 0 rgb(0 0 0 / 0.08),
+      0 var(--edge) 0 var(--color-gold-edge),
+      0 calc(var(--edge) + 6px) 18px -6px rgb(248 201 90 / 0.4);
+    transform: translateY(0);
+    transition:
+      transform var(--t-tap) var(--ease-out),
+      box-shadow var(--t-tap) var(--ease-out),
+      filter var(--t-quick);
+  }
+  .play-block:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+  .play-block:active,
+  .play-block[data-pressed="true"] {
+    transform: translateY(calc(var(--edge) - 1px));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      0 1px 0 var(--color-gold-edge);
+  }
+  /* idle: a slow glint crosses the gold, now and then */
+  .play-block[data-state="idle"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.55) 48%, transparent 60%);
+    background-size: 250% 100%;
+    background-position: 130% 0;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+    z-index: 1;
+    animation: glint 7s var(--ease-out) 2s infinite;
+  }
+  /* heating up under a long hover: the bevel goes molten before the shader takes over */
+  .play-block[data-heat="on"] {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.45),
+      0 var(--edge) 0 color-mix(in oklab, var(--color-gold-edge), var(--color-molten-deep) calc(var(--heat) * 100%)),
+      0 calc(var(--edge) + 6px) calc(18px + var(--heat) * 30px) calc(-6px + var(--heat) * 4px)
+        color-mix(in oklab, rgb(248 201 90 / 0.4), rgb(255 110 20 / 0.75) calc(var(--heat) * 100%));
+  }
+  .play-block[data-state="running"] {
+    background: linear-gradient(#3a3e48, #2d3038 45%);
+    color: var(--color-ink);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 var(--edge) 0 #1a1c22;
+  }
+  .play-block[data-state="running"] .running-dot {
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  /* Small play buttons in lists stay steel until hovered, so gold marks only the main action. */
+  .play-block-quiet[data-state="idle"]:not(:hover):not(:focus-visible) {
+    background: linear-gradient(#383c46, #2d3038 45%);
+    color: var(--color-ink);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 var(--edge) 0 #1a1c22;
+  }
+  .play-block-quiet[data-state="idle"]::after {
+    display: none;
+  }
+  .play-block:disabled {
+    cursor: progress;
+  }
+  .play-progress {
+    background-image: linear-gradient(115deg, rgb(255 255 255 / 0.18) 25%, rgb(255 255 255 / 0.38) 50%, rgb(255 255 255 / 0.18) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 32px;
+    padding: 0 0.8rem;
+    border-radius: var(--radius-ctl);
+    font-weight: 500;
+    font-size: 13px;
+    background: var(--color-slate-800);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink);
+    transition:
+      background var(--t-quick),
+      border-color var(--t-quick),
+      color var(--t-quick),
+      transform var(--t-tap) var(--ease-out),
+      box-shadow var(--t-quick);
+    white-space: nowrap;
+  }
+  .btn:hover {
+    background: var(--color-slate-700);
+    transform: translateY(-1px);
+  }
+  .btn:active {
+    transform: scale(0.97);
+    transition-duration: 60ms;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .btn svg {
+    transition: transform var(--t-quick) var(--spring);
+  }
+  .btn:hover svg {
+    transform: translateY(-1px) scale(1.06);
+  }
+  .btn-quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-ink-2);
+  }
+  .btn-quiet:hover {
+    background: var(--color-slate-800);
+    color: var(--color-ink);
+  }
+  .btn-gold {
+    background: var(--color-gold);
+    border-color: var(--color-gold);
+    color: var(--color-gold-ink);
+  }
+  .btn-gold:hover {
+    background: var(--color-gold-hi);
+    box-shadow: 0 6px 18px -8px rgb(248 201 90 / 0.6);
+  }
+  .btn-danger {
+    color: var(--color-redstone);
+  }
+
+  /* ---------- Fields ---------- */
+  .field {
+    height: 34px;
+    width: 100%;
+    padding: 0 0.7rem;
+    border-radius: var(--radius-ctl);
+    background: var(--color-slate-900);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink);
+    font-size: 13px;
+    outline: none;
+    transition:
+      border-color var(--t-quick),
+      box-shadow var(--t-quick),
+      background var(--t-quick);
+  }
+  .field:hover {
+    border-color: #444855;
+  }
+  select.field {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23aab0bb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.7rem center;
+  }
+  select.field option {
+    background: var(--color-slate-850);
+    color: var(--color-ink);
+  }
+  .field:focus {
+    border-color: var(--color-gold);
+    box-shadow: 0 0 0 3px rgb(248 201 90 / 0.15);
+  }
+  .field::placeholder {
+    color: var(--color-ink-3);
+  }
+  .field[aria-invalid="true"] {
+    border-color: var(--color-redstone);
+    animation: shake 0.32s var(--ease-out);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 22px;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--color-ink-2);
+    background: rgb(35 37 44 / 0.85);
+    border: 1px solid var(--color-line-soft);
+    transition: border-color var(--t-quick), color var(--t-quick);
+  }
+
+  /* ---------- Surfaces ---------- */
+  /* Translucent panels over the forge. No backdrop blur: it is slow on WebKitGTK (Linux). */
+  .panel {
+    background: rgb(23 25 30 / 0.86);
+    border: 1px solid var(--color-line-soft);
+  }
+  .card {
+    background: rgb(23 25 30 / 0.82);
+    border: 1px solid var(--color-line-soft);
+    transition:
+      transform var(--t-quick) var(--ease-out),
+      border-color var(--t-quick),
+      background var(--t-quick),
+      box-shadow var(--t-quick);
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-line);
+    background: rgb(28 30 36 / 0.92);
+    box-shadow: 0 12px 28px -14px rgb(0 0 0 / 0.7);
+  }
+  .card:active {
+    transform: translateY(0) scale(0.99);
+    transition-duration: 60ms;
+  }
+
+  /* Enter: fade and rise, staggered by --i (set per item, capped so long lists don't wait). */
+  .rise {
+    animation: rise var(--t-show) var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 12) * var(--stagger));
+  }
+  .fade-in {
+    animation: fade var(--t-move) var(--ease-out) both;
+  }
+  .skeleton {
+    background: linear-gradient(90deg, var(--color-slate-850) 25%, var(--color-slate-800) 50%, var(--color-slate-850) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s linear infinite;
+  }
+  .tilt {
+    transition: transform var(--t-move) var(--spring);
+  }
+  .group:hover .tilt {
+    transform: perspective(300px) rotateY(-12deg) rotateX(6deg) scale(1.05);
+  }
+
+  /* Pixel-art images (skins, block icons) stay crisp when scaled. */
+  .pixelated {
+    image-rendering: pixelated;
+  }
+
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes glint {
+  0%,
+  78% {
+    background-position: 130% 0;
+  }
+  100% {
+    background-position: -30% 0;
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+/* Motion settings and pausing. Loops pause while a game runs or Alloy is in the background,
+   so the launcher never takes GPU time from Minecraft. */
+html[data-paused] *,
+html[data-paused] *::after {
+  animation-play-state: paused !important;
+}
+html[data-motion="calm"] .play-block::after,
+html[data-motion="calm"] .bg-ember {
+  animation-duration: 14s !important;
+}
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ---------- Forge backdrop ---------- */
+.kenburns {
+  animation: kenburns 60s ease-in-out infinite alternate;
+  transform-origin: 52% 55%;
+}
+.forge-overlay svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* molten shapes get a light-gold highlight that breathes out of phase. A plain highlight
+   (not a blend mode) so it brightens identically in WebView2 and WebKitGTK. */
+.forge-overlay .bg-molten {
+  fill: #ffd889;
+  animation: molten 3.4s ease-in-out infinite alternate;
+}
+.forge-overlay .bg-molten:nth-child(3n) {
+  animation-delay: -1.2s;
+  animation-duration: 2.6s;
+}
+.forge-overlay .bg-molten:nth-child(3n + 1) {
+  animation-delay: -2.3s;
+}
+.forge-overlay .bg-flame {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  fill: #ffc25a;
+  animation: flame 0.42s steps(2) infinite alternate;
+}
+.smoke {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(120 112 104 / 0.18), transparent);
+  animation: smoke 18s ease-in-out infinite;
+}
+.smoke-a {
+  left: 18%;
+  top: 14%;
+  width: 14%;
+  height: 34%;
+}
+.smoke-b {
+  left: 22%;
+  top: 6%;
+  width: 11%;
+  height: 28%;
+  animation-delay: -9s;
+}
+.bg-ember {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffc46b;
+  box-shadow: 0 0 6px 1px rgb(255 150 40 / 0.8);
+  opacity: 0;
+  animation-name: ember;
+  animation-timing-function: ease-out;
+  animation-iteration-count: infinite;
+}
+@keyframes kenburns {
+  from {
+    transform: scale(1.02);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+@keyframes molten {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.32;
+  }
+}
+@keyframes flame {
+  from {
+    transform: scale(1, 0.92) skewX(-2deg);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1.04, 1.08) skewX(2deg);
+    opacity: 1;
+  }
+}
+@keyframes smoke {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate(1.5%, -6%) scale(1.15);
+    opacity: 1;
+  }
+}
+@keyframes ember {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--drift), -18vh) scale(0.4);
+  }
+}
+
+/* ---------- Logo ---------- */
+.alloy-logo svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.alloy-logo .alloy-gold,
+.alloy-logo .alloy-steel {
+  transform-box: fill-box;
+  transition: transform var(--t-move) var(--spring);
+}
+.alloy-logo:hover .alloy-gold {
+  transform: translateX(1.2%);
+}
+.alloy-logo:hover .alloy-steel {
+  transform: translateX(-1.2%);
+}
+.alloy-logo:active svg {
+  transform: scale(0.94);
+  transition: transform var(--t-tap) var(--ease-out);
+}
+/* molten light behind the mark; only the seam and the edges let it through */
+.alloy-heat {
+  background: radial-gradient(closest-side, rgb(255 160 50 / 0.9), rgb(255 90 20 / 0.35) 60%, transparent);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--t-move) var(--ease-out),
+    transform var(--t-move) var(--ease-out);
+}
+.alloy-logo:hover .alloy-heat {
+  opacity: 0.55;
+  transform: scale(1);
+}
+.alloy-intro .alloy-gold {
+  animation: logo-gold 900ms var(--spring) both;
+}
+.alloy-intro .alloy-steel {
+  animation: logo-steel 900ms var(--spring) both;
+}
+.alloy-intro .alloy-heat {
+  animation: logo-flash 1300ms var(--ease-out) both;
+}
+@keyframes logo-gold {
+  from {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+}
+@keyframes logo-steel {
+  from {
+    transform: translateX(30%);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+}
+@keyframes logo-flash {
+  0%,
+  45% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.toast-timer {
+  width: 100%;
+  transform-origin: left;
+  animation-name: toast-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-timer {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+.pop-in {
+  animation: pop 360ms var(--spring) both;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* CSS molten metal: the WebGL shader's fallback */
+.molten-css {
+  background:
+    radial-gradient(40% 70% at 20% 30%, rgb(255 236 170 / 0.95), transparent 70%),
+    radial-gradient(35% 80% at 70% 60%, rgb(255 200 90 / 0.9), transparent 70%),
+    radial-gradient(50% 90% at 45% 110%, rgb(255 120 20 / 0.95), transparent 70%),
+    radial-gradient(30% 60% at 90% 10%, rgb(255 170 60 / 0.8), transparent 70%),
+    linear-gradient(180deg, #ff9a2a, #e2420c 60%, #8a1c06);
+  background-size: 180% 200%, 160% 220%, 200% 160%, 150% 200%, 100% 100%;
+  animation: molten-flow 2.4s ease-in-out infinite alternate;
+}
+@keyframes molten-flow {
+  0% {
+    background-position: 0% 0%, 100% 50%, 50% 100%, 100% 0%, 0 0;
+  }
+  50% {
+    background-position: 60% 40%, 30% 80%, 10% 60%, 40% 60%, 0 0;
+  }
+  100% {
+    background-position: 100% 100%, 0% 20%, 90% 20%, 0% 100%, 0 0;
+  }
+}
+
+.update-ring {
+  animation: update-ring 2.4s var(--ease-out) infinite;
+}
+@keyframes update-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}

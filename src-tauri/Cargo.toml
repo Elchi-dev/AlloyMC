@@ -1,0 +1,28 @@
+[package]
+name = "alloy"
+description = "Alloy desktop app"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "alloy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+alloy-core = { path = "../crates/alloy-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid.workspace = true
+chrono.workspace = true
+dirs = "6"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }

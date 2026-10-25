@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Alloy
+GenericName=Minecraft Launcher
+Comment=Play and manage Minecraft, mods and modpacks
+Exec=alloy %u
+Icon=alloy
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=minecraft;launcher;modpack;mods;
+MimeType=x-scheme-handler/alloy;
+StartupWMClass=alloy
