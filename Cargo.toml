@@ -5,6 +5,9 @@ members = ["crates/alloy-core", "src-tauri"]
 [workspace.package]
 version = "0.2.1"
 edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/Elchi-dev/AlloyMC"
+homepage = "https://launcher.alloymc.dev"
 publish = false
 
 [workspace.dependencies]

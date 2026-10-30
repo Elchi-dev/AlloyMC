@@ -146,4 +146,14 @@ account. Windows builds come from CI.
 
 ## License
 
-Private, all rights reserved, Elchi. Ori comes from Orbit (MIT, Elchi).
+Alloy is free software under the [GNU General Public License v3.0](LICENSE)
+(GPL-3.0-only). Copyright © 2026 Elchi.
+
+You may use, study, change and share it. If you distribute a modified version, it must stay
+under the same license with its source available.
+
+Ori comes from [Orbit](https://github.com/Elchi-dev/Orbit) (MIT, Elchi). Pixelify Sans and
+Onest are under the SIL Open Font License. Minecraft's textures are never part of this
+repository: Alloy reads them from the player's own game files.
+
+Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
