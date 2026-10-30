@@ -33,6 +33,8 @@ export const api = {
   gameVersions: (includeSnapshots: boolean) => call<GameVersion[]>("list_game_versions", { includeSnapshots }),
   loaderVersions: (loader: Loader, gameVersion: string) =>
     call<LoaderVersion[]>("list_loader_versions", { loader, gameVersion }),
+  /** The Fabric API build a new Fabric/Quilt instance of this version would get. */
+  fabricApiVersion: (loader: Loader, gameVersion: string) => call<string | null>("fabric_api_version", { loader, gameVersion }),
 
   instances: () => call<Instance[]>("list_instances"),
   instance: (id: string) => call<Instance>("get_instance", { id }),

@@ -106,6 +106,7 @@ pub fn run() {
             commands::get_textures,
             commands::list_game_versions,
             commands::list_loader_versions,
+            commands::fabric_api_version,
             commands::list_java,
             commands::list_instances,
             commands::get_instance,

@@ -4,7 +4,7 @@
 //! so a crash never leaves a half-written jar that looks valid.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use futures::{StreamExt, TryStreamExt};
 use sha1::{Digest, Sha1};
 use tokio::io::AsyncWriteExt;
 
-use crate::progress::{emit, ProgressFn, Stage, Unit};
+use crate::progress::{emit, Progress, ProgressFn, Stage, Unit};
 use crate::util::sha1_file;
 use crate::{Error, Result};
 
@@ -64,8 +64,11 @@ pub async fn is_valid(task: &DownloadTask) -> bool {
     }
 }
 
-/// Downloads every task, `concurrency` at a time, reporting file counts under `stage`.
+/// Downloads every task, `concurrency` at a time, reporting under `stage`.
 /// Already-valid files are skipped without a network request.
+///
+/// When every task knows its size, progress is in bytes (and moves while a big file is
+/// still coming in, so a slow connection never looks frozen); otherwise in files.
 pub async fn download_all(
     http: &reqwest::Client,
     tasks: Vec<DownloadTask>,
@@ -75,18 +78,38 @@ pub async fn download_all(
 ) -> Result<()> {
     let tasks = dedupe(tasks);
     let total = tasks.len() as u64;
+    let sized = !tasks.is_empty() && tasks.iter().all(|t| t.size.is_some());
+    let total_bytes: u64 = tasks.iter().filter_map(|t| t.size).sum();
     let done = Arc::new(AtomicU64::new(0));
-    emit(progress, stage, 0, total, Unit::Files, None);
+    let got = Arc::new(AtomicI64::new(0));
+    let report = {
+        let (done, got, progress) = (done.clone(), got.clone(), progress.clone());
+        move || {
+            let files = done.load(Ordering::Relaxed);
+            if sized {
+                let current = (got.load(Ordering::Relaxed).max(0) as u64).min(total_bytes);
+                progress(Progress { stage, current, total: total_bytes, unit: Unit::Bytes, message: None, files: Some((files, total)) });
+            } else {
+                emit(&progress, stage, files, total, Unit::Files, None);
+            }
+        }
+    };
+    report();
 
     futures::stream::iter(tasks.into_iter().map(|task| {
-        let done = done.clone();
-        let progress = progress.clone();
+        let (done, got, report) = (done.clone(), got.clone(), report.clone());
         async move {
-            if !is_valid(&task).await {
-                download_with_retry(http, &task).await?;
+            if is_valid(&task).await {
+                got.fetch_add(task.size.unwrap_or(0) as i64, Ordering::Relaxed);
+            } else {
+                let on_bytes = |delta: i64, _: Option<u64>| {
+                    got.fetch_add(delta, Ordering::Relaxed);
+                    report();
+                };
+                download_with_progress(http, &task, &on_bytes).await?;
             }
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            emit(&progress, stage, n, total, Unit::Files, None);
+            done.fetch_add(1, Ordering::Relaxed);
+            report();
             Ok::<_, Error>(())
         }
     }))
@@ -107,12 +130,31 @@ fn dedupe(mut tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
 pub static BYTES_RECEIVED: AtomicU64 = AtomicU64::new(0);
 
 pub async fn download_with_retry(http: &reqwest::Client, task: &DownloadTask) -> Result<()> {
+    download_with_progress(http, task, &|_, _| {}).await
+}
+
+/// Like [`download_with_retry`], calling `on_bytes(delta, content_length)` as data arrives.
+/// A failed attempt reports its bytes back as a negative delta, so totals never overshoot.
+pub async fn download_with_progress(
+    http: &reqwest::Client,
+    task: &DownloadTask,
+    on_bytes: &(dyn Fn(i64, Option<u64>) + Send + Sync),
+) -> Result<()> {
     let mut last_err = None;
     for attempt in 0..4u32 {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(400 * 2u64.pow(attempt))).await;
         }
-        match download_one(http, task).await {
+        let got = AtomicI64::new(0);
+        let attempt_bytes = |delta: i64, len: Option<u64>| {
+            got.fetch_add(delta, Ordering::Relaxed);
+            on_bytes(delta, len);
+        };
+        let result = download_one(http, task, &attempt_bytes).await;
+        if result.is_err() {
+            on_bytes(-got.load(Ordering::Relaxed), None);
+        }
+        match result {
             Ok(()) => return Ok(()),
             // A wrong hash will not fix itself by retrying the same URL.
             Err(e @ Error::HashMismatch { .. }) => return Err(e),
@@ -125,7 +167,7 @@ pub async fn download_with_retry(http: &reqwest::Client, task: &DownloadTask) ->
     Err(last_err.unwrap_or_else(|| Error::other("download failed")))
 }
 
-async fn download_one(http: &reqwest::Client, task: &DownloadTask) -> Result<()> {
+async fn download_one(http: &reqwest::Client, task: &DownloadTask, on_bytes: &(dyn Fn(i64, Option<u64>) + Send + Sync)) -> Result<()> {
     if let Some(parent) = task.dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -138,12 +180,14 @@ async fn download_one(http: &reqwest::Client, task: &DownloadTask) -> Result<()>
         Some(ext) => format!("{}.part", ext.to_string_lossy()),
         None => "part".into(),
     });
+    let length = resp.content_length().or(task.size);
     let mut file = tokio::fs::File::create(&part).await?;
     let mut hasher = Sha1::new();
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         BYTES_RECEIVED.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        on_bytes(chunk.len() as i64, length);
         hasher.update(&chunk);
         file.write_all(&chunk).await?;
     }

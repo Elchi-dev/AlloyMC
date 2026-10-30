@@ -25,6 +25,9 @@ pub struct Progress {
     pub total: u64,
     pub unit: Unit,
     pub message: Option<String>,
+    /// Files finished and total, when `unit` is bytes and the job is a set of files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<(u64, u64)>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -42,5 +45,5 @@ pub fn noop() -> ProgressFn {
 }
 
 pub fn emit(f: &ProgressFn, stage: Stage, current: u64, total: u64, unit: Unit, message: Option<String>) {
-    f(Progress { stage, current, total, unit, message })
+    f(Progress { stage, current, total, unit, message, files: None })
 }

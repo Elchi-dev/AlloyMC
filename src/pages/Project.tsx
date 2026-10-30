@@ -15,6 +15,7 @@ import { api, isTauri, newJobId } from "../lib/api";
 import { ago, compact, loaderName } from "../lib/format";
 import { useInstances } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
+import { useJobProgress } from "../components/Downloads";
 import type { CfFile, ContentKind, Instance, Loader, ModrinthVersion, Platform } from "../lib/types";
 
 const openExternal = (url: string) => (isTauri ? openUrl(url) : Promise.resolve(window.open(url, "_blank"))).catch(toastError);
@@ -302,6 +303,8 @@ function InstallBox({ platform, id, kind, title, instances, targetId, setTargetI
 }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useJobProgress(jobId);
   const go = useStore((s) => s.go);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -318,8 +321,10 @@ function InstallBox({ platform, id, kind, title, instances, targetId, setTargetI
     setState("busy");
     try {
       if (kind === "modpack") {
-        useStore.getState().toast({ kind: "info", text: `Installing ${title}. It's in the downloads panel.` });
-        const r = platform === "modrinth" ? await api.installModrinthModpack(release.id, newJobId(), title) : await api.installCurseForgeModpack(Number(id), Number(release.id), newJobId(), title);
+        useStore.getState().toast({ kind: "info", text: `Installing ${title}. It's in the downloads panel.`, action: { label: "Show", run: () => useStore.getState().setDownloadsOpen(true) } });
+        const job = newJobId();
+        setJobId(job);
+        const r = platform === "modrinth" ? await api.installModrinthModpack(release.id, job, title) : await api.installCurseForgeModpack(Number(id), Number(release.id), job, title);
         useStore.getState().toast({ kind: "success", text: `${title} is ready`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
       } else if (target) {
         const out = platform === "modrinth" ? await api.installModrinthVersion(target.id, release.id, title) : await api.installCurseForgeFile(target.id, Number(id), Number(release.id), title);
@@ -335,9 +340,10 @@ function InstallBox({ platform, id, kind, title, instances, targetId, setTargetI
   return (
     <div ref={ref} className="relative flex shrink-0 flex-col items-end gap-2">
       <div className="flex">
-        <button className="btn btn-gold h-11 rounded-r-none px-5 text-[14px]" disabled={loading || !best || state !== "idle" || (kind !== "modpack" && !target)} onClick={() => install()}>
+        <button className="btn btn-gold relative h-11 overflow-hidden rounded-r-none px-5 text-[14px] tabular-nums" title={job?.detail} disabled={loading || !best || state !== "idle" || (kind !== "modpack" && !target)} onClick={() => install()}>
+          {job && <span className="absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-300" style={{ width: `${job.percent}%` }} aria-hidden />}
           {state === "busy" ? <span className="spinner" /> : state === "done" ? <Check size={16} className="pop-in" /> : <Download size={16} />}
-          {state === "done" ? "Installed" : kind === "modpack" ? "Install modpack" : target ? `Install into ${target.name}` : "Install"}
+          {state === "done" ? "Installed" : state === "busy" && job ? `Installing ${job.percent}%` : kind === "modpack" ? "Install modpack" : target ? `Install into ${target.name}` : "Install"}
         </button>
         {kind !== "modpack" && (
           <button className="btn btn-gold h-11 rounded-l-none border-l border-gold-deep/50 px-2" aria-label="Choose instance" aria-expanded={open} onClick={() => setOpen((v) => !v)}>

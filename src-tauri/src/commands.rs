@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use alloy_core::auth::microsoft::MsClient;
 use alloy_core::auth::Account;
-use alloy_core::content::curseforge;
+use alloy_core::content::{curseforge, manage};
 use alloy_core::instance::{self, InstallState, Instance, NewInstance};
 use alloy_core::java::{self, JavaInstall};
 use alloy_core::launch::{self, LaunchOptions, QuickPlay};
@@ -47,7 +47,8 @@ pub(crate) fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Optio
         {
             let mut l = last.lock().unwrap();
             let stage_changed = l.1 != Some(p.stage);
-            let finished = p.current >= p.total;
+            // A total of 0 means "unknown" (a download without a length), not "finished".
+            let finished = p.total > 0 && p.current >= p.total;
             if !stage_changed && !finished && l.0.elapsed() < Duration::from_millis(60) {
                 return;
             }
@@ -167,7 +168,7 @@ pub async fn list_game_versions(state: State<'_, AppState>, include_snapshots: b
 
 #[tauri::command]
 pub async fn list_loader_versions(state: State<'_, AppState>, loader: Loader, game_version: String) -> Result<Vec<LoaderVersion>> {
-    loaders::versions(&state.launcher, loader, &game_version).await
+    loaders::versions_marked(&state.launcher, loader, &game_version).await
 }
 
 #[tauri::command]
@@ -190,16 +191,40 @@ pub async fn get_instance(state: State<'_, AppState>, id: String) -> Result<Inst
 /// Creates the instance and starts installing it in the background. Returns immediately.
 #[tauri::command]
 pub async fn create_instance(app: AppHandle, state: State<'_, AppState>, new: NewInstance) -> Result<Instance> {
+    let fabric_api = new.fabric_api.unwrap_or(true) && matches!(new.loader, Loader::Fabric | Loader::Quilt);
     let inst = instance::create(&state.launcher, new).await?;
     changed(&app, "instances-changed");
     let id = inst.id.clone();
-    let app2 = app.clone();
+    let (app2, created) = (app.clone(), inst.clone());
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_install(&app2, &id, &format!("install:{id}"), false).await {
+        // Fabric API comes in alongside the game files; it's a couple of MB next to hundreds.
+        let api = async {
+            if !fabric_api {
+                return;
+            }
+            let launcher = app2.state::<AppState>().launcher.clone();
+            match manage::add_fabric_api(&launcher, &created).await {
+                Ok(Some(v)) => {
+                    tracing::info!("added Fabric API {v} to {}", created.id);
+                    changed(&app2, "content-changed");
+                }
+                Ok(None) => tracing::info!("no Fabric API build for {} yet", created.game_version),
+                Err(e) => tracing::warn!("could not add Fabric API to {}: {e}", created.id),
+            }
+        };
+        let job = format!("install:{id}");
+        let (installed, ()) = tokio::join!(run_install(&app2, &id, &job, false), api);
+        if let Err(e) = installed {
             tracing::error!("install of {id} failed: {e}");
         }
     });
     Ok(inst)
+}
+
+/// The Fabric API build a new Fabric or Quilt instance of this game version would get.
+#[tauri::command]
+pub async fn fabric_api_version(state: State<'_, AppState>, loader: Loader, game_version: String) -> Result<Option<String>> {
+    Ok(manage::fabric_api_for(&state.launcher, loader, &game_version).await?.map(|v| v.version_number))
 }
 
 #[tauri::command]

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Download, RotateCw, X } from "lucide-react";
 import { api } from "../lib/api";
-import { bytes, progressFraction, progressLabel } from "../lib/format";
+import { bytes, progressDetail, progressFraction, progressParts } from "../lib/format";
 import { toastError, useStore } from "../lib/store";
 import type { Job } from "../lib/types";
 import { Ori } from "./ori/Ori";
@@ -26,6 +26,18 @@ function useClickOutside(open: boolean, close: () => void) {
   return ref;
 }
 
+/**
+ * Live progress of one job, for the button that started it: "34%" of the current step and
+ * the full detail line for its tooltip. Null until the job reports numbers.
+ */
+export function useJobProgress(jobId: string | null): { percent: number; detail: string } | null {
+  const job = useStore((s) => (jobId ? s.jobList.find((j) => j.id === jobId) : undefined));
+  const speed = useStore((s) => s.speed);
+  const p = job?.state === "running" ? job.progress : null;
+  if (!p || p.total <= 0) return null;
+  return { percent: Math.floor(progressFraction(p) * 100), detail: progressDetail(p, speed) };
+}
+
 /** Overall progress of the running jobs, 0 to 1 (jobs without numbers count as half done). */
 function overall(jobs: Job[]): number {
   const running = jobs.filter((j) => j.state === "running");
@@ -36,7 +48,8 @@ function overall(jobs: Job[]): number {
 
 export function DownloadsButton() {
   const jobs = useStore((s) => s.jobList);
-  const [open, setOpen] = useState(false);
+  const open = useStore((s) => s.downloadsOpen);
+  const setOpen = useStore((s) => s.setDownloadsOpen);
   const [seenFailures, setSeenFailures] = useState(0);
   const ref = useClickOutside(open, () => setOpen(false));
   const running = jobs.filter((j) => j.state === "running").length;
@@ -56,7 +69,7 @@ export function DownloadsButton() {
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ type: "spring", stiffness: 500, damping: 26 }}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         aria-label={running ? `${running} running, open downloads` : "Open downloads"}
         aria-expanded={open}
         className={`group relative grid h-11 w-11 place-items-center rounded-[8px] transition-[color,background,transform] duration-150 active:scale-90 ${open ? "bg-slate-800 text-ink" : "text-ink-3 hover:bg-slate-850 hover:text-ink"}`}
@@ -132,12 +145,14 @@ function Panel({ jobs }: { jobs: Job[] }) {
 
 function JobRow({ job }: { job: Job }) {
   const go = useStore((s) => s.go);
+  const speed = useStore((s) => s.speed);
   const p = job.progress;
   const fraction = p && p.total ? progressFraction(p) : null;
+  const parts = job.state === "running" && p ? progressParts(p, speed) : null;
   const detail =
     job.state === "running"
-      ? p
-        ? `${progressLabel(p)}${p.total > 1 && p.unit === "files" ? ` ${p.current.toLocaleString()} of ${p.total.toLocaleString()}` : ""}`
+      ? parts
+        ? parts.label
         : "Starting"
       : job.state === "done"
         ? "Done"
@@ -161,7 +176,7 @@ function JobRow({ job }: { job: Job }) {
           onClick={() => job.instanceId && go({ name: "instance", id: job.instanceId })}
         >
           <span className="block truncate text-[13px] font-medium">{job.title}</span>
-          <span className={`block truncate text-[12px] ${job.state === "failed" ? "text-redstone" : "text-ink-3"}`} title={detail}>
+          <span className={`block truncate text-[12px] ${job.state === "failed" ? "text-redstone" : "text-ink-3"}`} title={p && job.state === "running" ? progressDetail(p, speed) : detail}>
             {detail}
           </span>
         </button>
@@ -183,6 +198,12 @@ function JobRow({ job }: { job: Job }) {
           ) : (
             <div className="h-full rounded-full bg-gold transition-[width] duration-300" style={{ width: `${Math.max(3, fraction * 100)}%` }} />
           )}
+        </div>
+      )}
+      {parts?.amount && (
+        <div className="mt-1.5 flex justify-between gap-3 text-[11px] tabular-nums text-ink-3">
+          <span>{parts.amount}</span>
+          {parts.left && <span>{parts.left}</span>}
         </div>
       )}
     </motion.div>

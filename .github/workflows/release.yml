@@ -52,7 +52,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@stable
+      # Release builds keep their own cache. Without a key of their own they restored the CI
+      # job's debug cache, which holds no release artifacts, and compiled everything cold
+      # (16 minutes on Windows). Runs dispatched on main save it for every later release.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
 
       - name: Build
         run: pnpm tauri build --bundles ${{ matrix.bundle }}

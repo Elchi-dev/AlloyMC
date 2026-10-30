@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.1
+
+Fixes from the first days of 0.2. Installs as a one-click update from 0.2.0 or 0.1.0.
+
+- **Player heads show again.** Mojang hands out skin links as `http://`, which the app may
+  not load, so Microsoft accounts showed an empty square. Heads now load over HTTPS and are
+  drawn the way the game draws them (old 64x32 skins with a solid hat layer included). An
+  account whose skin can't load shows its initial instead of nothing.
+- **Downloads show progress on slow connections.** Modpack files and mods now report every
+  byte instead of jumping once a whole file is done, with amounts and time left in the
+  downloads panel, a percentage on the install button and the Play button, and a "Show"
+  button on the "Installing" notice that opens the panel.
+- **New Fabric and Quilt instances come with Fabric API**, the build made for that
+  Minecraft version, shown in the New instance dialog with a box to leave it out.
+- **The right loader version for each Minecraft version.** Forge now gets Forge's own
+  recommended build for each version (14.23.5.2859 on 1.12.2, where the newest build is 2864). The dialog
+  explains that Fabric Loader is one version for every Minecraft release and Fabric API is
+  the part that changes. Versions Fabric doesn't support (1.12.2) now say so instead of
+  showing an empty picker.
+- Release builds keep their own build cache, so the Windows build no longer compiles
+  everything from scratch.
+
 ## 0.2.0
 
 Everything for daily use. Installs as a one-click update from 0.1.0.

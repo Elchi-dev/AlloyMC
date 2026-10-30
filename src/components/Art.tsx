@@ -1,6 +1,6 @@
 // Instance icons and player heads.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -107,13 +107,75 @@ export function InstanceIcon({ instance, size = 48, shared = false, tilt = false
   );
 }
 
+/** Rendered heads by skin URL, so switching accounts or pages never redraws one. */
+const heads = new Map<string, Promise<string>>();
+
 /**
- * The face from a 64x64 skin texture (8x8 at 8,8) plus the hat layer (8x8 at 40,8),
- * cropped with background-position so no canvas or CORS is involved.
+ * The head the game shows: the face (8x8 at 8,8) with the hat layer (8x8 at 40,8) over it.
+ * Old 64x32 skins often fill the hat area with solid colour; Minecraft ignores the whole
+ * overlay then, so a fully opaque legacy overlay is skipped here too.
  */
+function renderHead(url: string): Promise<string> {
+  let p = heads.get(url);
+  if (!p) {
+    p = new Promise<string>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const src = document.createElement("canvas");
+          src.width = img.naturalWidth;
+          src.height = img.naturalHeight;
+          const sctx = src.getContext("2d", { willReadFrequently: true })!;
+          sctx.drawImage(img, 0, 0);
+          const k = src.width / 64; // HD skins are 128 or more wide
+          const legacy = src.height * 2 === src.width;
+          let hat = true;
+          if (legacy) {
+            const a = sctx.getImageData(32 * k, 0, 32 * k, 32 * k).data;
+            hat = false;
+            for (let i = 3; i < a.length; i += 4) if (a[i] < 128) { hat = true; break; }
+          }
+          const out = document.createElement("canvas");
+          out.width = out.height = 8 * k;
+          const ctx = out.getContext("2d")!;
+          ctx.imageSmoothingEnabled = false;
+          // The face itself is always opaque in game.
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, 8 * k, 8 * k);
+          ctx.drawImage(src, 8 * k, 8 * k, 8 * k, 8 * k, 0, 0, 8 * k, 8 * k);
+          if (hat) ctx.drawImage(src, 40 * k, 8 * k, 8 * k, 8 * k, 0, 0, 8 * k, 8 * k);
+          resolve(out.toDataURL("image/png"));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.onerror = () => reject(new Error("skin unavailable"));
+      img.src = url;
+    });
+    p.catch(() => heads.delete(url)); // offline now; try again next time
+    heads.set(url, p);
+  }
+  return p;
+}
+
 export function PlayerHead({ account, size = 32 }: { account?: Pick<Account, "username" | "skinUrl"> | null; size?: number }) {
-  const scale = size / 8;
-  if (!account?.skinUrl) {
+  // Mojang hands out http:// texture links; the same files are on https://, the only
+  // scheme the app may load images from. Accounts saved by 0.2.0 still hold http://.
+  const skin = account?.skinUrl?.replace(/^http:\/\//, "https://");
+  const [head, setHead] = useState<{ url: string; data: string } | null>(null);
+  useEffect(() => {
+    if (!skin) return;
+    let live = true;
+    renderHead(skin).then(
+      (data) => live && setHead({ url: skin, data }),
+      () => live && setHead(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [skin]);
+  if (!skin || head?.url !== skin) {
     const hue = hueOf(account?.username ?? "?");
     return (
       <div
@@ -125,15 +187,5 @@ export function PlayerHead({ account, size = 32 }: { account?: Pick<Account, "us
       </div>
     );
   }
-  const layer = (x: number) => ({
-    backgroundImage: `url(${account.skinUrl})`,
-    backgroundSize: `${64 * scale}px auto`,
-    backgroundPosition: `-${x * scale}px -${8 * scale}px`,
-  });
-  return (
-    <div className="pixelated relative shrink-0 overflow-hidden rounded-[4px]" style={{ width: size, height: size }} aria-hidden>
-      <div className="absolute inset-0 pixelated" style={layer(8)} />
-      <div className="absolute inset-0 pixelated" style={layer(40)} />
-    </div>
-  );
+  return <img src={head.data} alt="" width={size} height={size} className="pixelated shrink-0 rounded-[4px]" draggable={false} aria-hidden />;
 }

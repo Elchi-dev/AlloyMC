@@ -37,6 +37,8 @@ export interface NewInstance {
   loader: Loader;
   loaderVersion?: string | null;
   icon?: string | null;
+  /** Fabric and Quilt: start with Fabric API (default yes). */
+  fabricApi?: boolean;
 }
 
 export interface GameVersion {
@@ -48,6 +50,8 @@ export interface GameVersion {
 export interface LoaderVersion {
   id: string;
   stable: boolean;
+  /** The build a new instance of this game version gets (Forge's own pick for Forge). */
+  recommended: boolean;
 }
 
 export interface Account {
@@ -84,6 +88,8 @@ export interface Progress {
   total: number;
   unit: "files" | "bytes" | "steps";
   message?: string | null;
+  /** Files finished and total, alongside byte progress. */
+  files?: [number, number] | null;
 }
 
 export type ContentKind = "mod" | "resourcepack" | "shader" | "datapack" | "modpack";

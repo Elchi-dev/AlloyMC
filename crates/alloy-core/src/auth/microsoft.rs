@@ -288,9 +288,9 @@ pub async fn login_minecraft(http: &reqwest::Client, client: &MsClient, ms_acces
         xuid: jwt_claim(&mc.access_token, "xuid"),
         expires_at: chrono::Utc::now().timestamp() + mc.expires_in,
         access_token: mc.access_token,
-        skin_url: skin.map(|s| s.url.clone()),
+        skin_url: skin.map(|s| secure_texture(&s.url)),
         skin_variant: skin.and_then(|s| s.variant.clone()),
-        cape_url: cape.map(|c| c.url.clone()),
+        cape_url: cape.map(|c| secure_texture(&c.url)),
     })
 }
 
@@ -317,9 +317,24 @@ fn jwt_claim(token: &str, claim: &str) -> Option<String> {
     }
 }
 
+/// Mojang hands out texture URLs as `http://textures.minecraft.net/...`; the same files are
+/// served over HTTPS, which is the only scheme the app's content policy loads images from.
+pub fn secure_texture(url: &str) -> String {
+    match url.strip_prefix("http://") {
+        Some(rest) => format!("https://{rest}"),
+        None => url.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn textures_load_over_https() {
+        assert_eq!(secure_texture("http://textures.minecraft.net/texture/abc"), "https://textures.minecraft.net/texture/abc");
+        assert_eq!(secure_texture("https://textures.minecraft.net/texture/abc"), "https://textures.minecraft.net/texture/abc");
+    }
 
     #[test]
     fn authorize_url_uses_official_id() {

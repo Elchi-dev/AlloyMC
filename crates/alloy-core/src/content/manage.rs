@@ -93,6 +93,29 @@ async fn present(launcher: &Launcher, instance: &Instance) -> Result<(Vec<Scanne
 
 // ---------- Modrinth ----------
 
+/// Fabric API on Modrinth. Nearly every Fabric mod needs it, so new Fabric and Quilt
+/// instances start with it (Quilt loads Fabric mods, and Fabric API runs on it).
+pub const FABRIC_API: &str = "P7dR8mSH";
+
+/// The Fabric API build for a game version: the newest release, else the newest build.
+/// Fabric API is made per game version (`0.116.17+1.21.1`), unlike the loader itself.
+pub async fn fabric_api_for(launcher: &Launcher, loader: Loader, game: &str) -> Result<Option<modrinth::Version>> {
+    if !matches!(loader, Loader::Fabric | Loader::Quilt) {
+        return Ok(None);
+    }
+    let versions = modrinth::project_versions(launcher, FABRIC_API, &modrinth::compatible_loaders(loader), &[game]).await?;
+    let pick = versions.iter().position(|v| v.version_type == "release").or((!versions.is_empty()).then_some(0));
+    Ok(pick.map(|i| versions.into_iter().nth(i).unwrap()))
+}
+
+/// Adds Fabric API to a new instance. Returns the version installed, or None when there is
+/// no build for this game version yet (fresh snapshots).
+pub async fn add_fabric_api(launcher: &Launcher, instance: &Instance) -> Result<Option<String>> {
+    let Some(v) = fabric_api_for(launcher, instance.loader, &instance.game_version).await? else { return Ok(None) };
+    install_modrinth(launcher, instance, &v.id).await?;
+    Ok(Some(v.version_number))
+}
+
 /// Installs a Modrinth version and everything it needs.
 pub async fn install_modrinth(launcher: &Launcher, instance: &Instance, version_id: &str) -> Result<InstallOutcome> {
     let (_, mut have) = present(launcher, instance).await?;

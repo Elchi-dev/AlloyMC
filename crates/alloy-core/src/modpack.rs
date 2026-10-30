@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::content::manage::BlockedFile;
 use crate::content::{curseforge, ContentMeta, Source};
-use crate::download::{download_all, download_with_retry, DownloadTask};
+use crate::download::{download_all, download_with_progress, DownloadTask};
 use crate::instance::{self, Instance, LinkedPack, NewInstance, PackSource};
 use crate::meta::loaders::Loader;
 use crate::progress::{emit, ProgressFn, Stage, Unit};
@@ -131,8 +131,15 @@ pub async fn import_url(launcher: &Launcher, url: &str, progress: &ProgressFn) -
     // `COBBLEVERSE%201.7.mrpack` is a file name with a space in it.
     let name = percent_encoding::percent_decode_str(&name).decode_utf8_lossy().replace(['/', '\\'], "_");
     let dest = launcher.dirs.meta().join("imports").join(&name);
-    emit(progress, Stage::Metadata, 0, 1, Unit::Steps, Some(format!("Downloading {name}")));
-    download_with_retry(&launcher.http, &DownloadTask::new(url, &dest)).await?;
+    // Packs with big overrides run to hundreds of MB, so this download reports every byte.
+    let message = Some("Downloading the pack".to_string());
+    emit(progress, Stage::Metadata, 0, 0, Unit::Bytes, message.clone());
+    let got = std::sync::atomic::AtomicI64::new(0);
+    let on_bytes = |delta: i64, len: Option<u64>| {
+        let now = got.fetch_add(delta, std::sync::atomic::Ordering::Relaxed) + delta;
+        emit(progress, Stage::Metadata, now.max(0) as u64, len.unwrap_or(0), Unit::Bytes, message.clone());
+    };
+    download_with_progress(&launcher.http, &DownloadTask::new(url, &dest), &on_bytes).await?;
     let mut result = import_file(launcher, &dest, progress).await?;
     if let Some(link) = result.instance.linked_pack.as_mut() {
         link.source = PackSource::Url;
@@ -172,7 +179,7 @@ async fn import_mrpack(launcher: &Launcher, path: &Path, index: MrpackIndex, pro
     let (game, loader, loader_version) = index.game_and_loader()?;
     let mut inst = instance::create(
         launcher,
-        NewInstance { name: index.name.clone(), game_version: game, loader, loader_version, icon: None, group: None },
+        NewInstance { name: index.name.clone(), game_version: game, loader, loader_version, icon: None, group: None, fabric_api: None },
     )
     .await?;
     inst.linked_pack = Some(LinkedPack {
@@ -254,6 +261,7 @@ async fn import_cf(launcher: &Launcher, path: &Path, manifest: CfManifest, progr
             loader_version,
             icon: None,
             group: None,
+            fabric_api: None,
         },
     )
     .await?;

@@ -95,7 +95,8 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
       const snaps = args.includeSnapshots ? ["26.3-snapshot-5", "26.3-snapshot-4"] : [];
       return r([...snaps.map((id) => ({ id, type: "snapshot", releaseTime: "" })), ...ids.map((id) => ({ id, type: "release", releaseTime: "" }))]);
     }
-    case "list_loader_versions": return r(args.loader === "vanilla" ? [] : [{ id: "0.20.1", stable: true }, { id: "0.20.0", stable: true }, { id: "0.21.0-beta.2", stable: false }]);
+    case "list_loader_versions": return r(args.loader === "vanilla" ? [] : [{ id: "0.20.1", stable: true, recommended: true }, { id: "0.20.0", stable: true, recommended: false }, { id: "0.21.0-beta.2", stable: false, recommended: false }]);
+    case "fabric_api_version": return r(args.loader === "fabric" || args.loader === "quilt" ? `0.116.17+${args.gameVersion}` : null);
     case "list_instances": return r([...db.instances].sort((a, b) => (b.lastPlayed ?? b.createdAt) - (a.lastPlayed ?? a.createdAt)));
     case "get_instance": return r(db.instances.find((i) => i.id === args.id));
     case "create_instance": {

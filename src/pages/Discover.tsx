@@ -8,6 +8,7 @@ import { api, newJobId } from "../lib/api";
 import { ago, compact, loaderName } from "../lib/format";
 import { useInstances, useSettings } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
+import { useJobProgress } from "../components/Downloads";
 import type { ContentHit, ContentKind, Instance, Platform } from "../lib/types";
 
 const kinds: { value: ContentKind; label: string }[] = [
@@ -149,21 +150,25 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
 
 function ResultRow({ hit, instance, index }: { hit: ContentHit; instance?: Instance; index: number }) {
   const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useJobProgress(jobId);
   const go = useStore((s) => s.go);
 
   const install = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setState("busy");
+    const id = newJobId();
+    setJobId(id);
     const pack = hit.kind === "modpack";
     const none = `${hit.title} has no version for ${instance?.gameVersion} ${instance ? loaderName[instance.loader] : ""}`;
     try {
-      if (pack) useStore.getState().toast({ kind: "info", text: `Installing ${hit.title}. Follow it in the downloads panel.` });
+      if (pack) useStore.getState().toast({ kind: "info", text: `Installing ${hit.title}. Follow it in the downloads panel.`, action: { label: "Show", run: () => useStore.getState().setDownloadsOpen(true) } });
       if (hit.source === "curseforge") {
         const files = await api.curseforgeFiles(Number(hit.id), pack ? undefined : instance?.id);
         const f = files.find((x) => x.releaseType === 1) ?? files[0];
         if (!f) throw none;
         if (pack) {
-          const r = await api.installCurseForgeModpack(Number(hit.id), f.id, newJobId(), hit.title);
+          const r = await api.installCurseForgeModpack(Number(hit.id), f.id, id, hit.title);
           useStore.getState().toast({ kind: "success", text: `${hit.title} is ready`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
         } else if (instance) reportOutcome(await api.installCurseForgeFile(instance.id, Number(hit.id), f.id, hit.title));
       } else {
@@ -171,7 +176,7 @@ function ResultRow({ hit, instance, index }: { hit: ContentHit; instance?: Insta
         const v = versions.find((x) => x.version_type === "release") ?? versions[0];
         if (!v) throw none;
         if (pack) {
-          const r = await api.installModrinthModpack(v.id, newJobId(), hit.title);
+          const r = await api.installModrinthModpack(v.id, id, hit.title);
           useStore.getState().toast({ kind: "success", text: `${hit.title} is ready`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
         } else if (instance) reportOutcome(await api.installModrinthVersion(instance.id, v.id, hit.title));
       }
@@ -224,7 +229,7 @@ function ResultRow({ hit, instance, index }: { hit: ContentHit; instance?: Insta
         {state === "done" ? (
           <span className="pop-in flex items-center gap-1.5"><Check size={15} className="text-grass" /> Installed</span>
         ) : state === "busy" ? (
-          <span className="flex items-center gap-2"><span className="spinner" /> Installing</span>
+          <span className="flex items-center gap-2 tabular-nums" title={job?.detail}><span className="spinner" /> Installing{job ? ` ${job.percent}%` : ""}</span>
         ) : (
           <><Download size={15} /> {hit.kind === "modpack" ? "Install pack" : "Install"}</>
         )}

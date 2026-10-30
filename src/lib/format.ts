@@ -57,6 +57,46 @@ export function progressLabel(p: Progress): string {
   return p.message ?? stageLabel[p.stage];
 }
 
+/** "12.0 of 86.2 MB", with the unit once when both sides share it. */
+export function bytesOf(current: number, total: number): string {
+  const [a, b] = [bytes(current), bytes(total)];
+  const unit = b.split(" ")[1];
+  return a.endsWith(" " + unit) ? `${a.split(" ")[0]} of ${b}` : `${a} of ${b}`;
+}
+
+/** "2 min left", from what's still to come and the current speed. */
+export function timeLeft(remaining: number, speed: number): string | null {
+  if (speed <= 0 || remaining <= 0) return null;
+  const s = remaining / speed;
+  if (s < 10) return "a few seconds left";
+  if (s < 60) return `${Math.round(s / 10) * 10} s left`;
+  if (s < 3600) return `${Math.round(s / 60)} min left`;
+  return `${(s / 3600).toFixed(1)} h left`;
+}
+
+/**
+ * The full line under a running job: what it's doing, how far along in files and bytes,
+ * and how long is left at the current speed. Bytes keep moving on slow connections even
+ * while a single big file is still coming in.
+ */
+export function progressDetail(p: Progress, speed = 0): string {
+  const { label, amount, left } = progressParts(p, speed);
+  return [label, amount, left].filter(Boolean).join(" · ");
+}
+
+/** The pieces of [`progressDetail`], for layouts that put them in different places. */
+export function progressParts(p: Progress, speed = 0): { label: string; amount: string | null; left: string | null } {
+  let label = progressLabel(p);
+  if (p.unit === "files" && p.total > 1) label += ` ${p.current.toLocaleString()} of ${p.total.toLocaleString()}`;
+  if (p.unit !== "bytes") return { label, amount: null, left: null };
+  if (p.files && p.files[1] > 1) label += ` ${p.files[0].toLocaleString()} of ${p.files[1].toLocaleString()}`;
+  return {
+    label,
+    amount: p.total > 0 ? bytesOf(p.current, p.total) : bytes(p.current),
+    left: p.total > 0 ? timeLeft(p.total - p.current, speed) : null,
+  };
+}
+
 export function progressFraction(p: Progress): number {
   return p.total > 0 ? Math.min(1, p.current / p.total) : 0;
 }

@@ -63,6 +63,9 @@ interface State {
   /** Download speed while anything runs, bytes per second. */
   speed: number;
   setSpeed: (n: number) => void;
+  /** The downloads panel, opened from its sidebar button or a toast's "Show". */
+  downloadsOpen: boolean;
+  setDownloadsOpen: (open: boolean) => void;
 
   /** Problems found right before launching; the dialog shows while this is set. */
   preflight: { instanceId: string; result: Preflight } | null;
@@ -133,6 +136,8 @@ export const useStore = create<State>((set, get) => ({
   setJobList: (jobList) => set({ jobList }),
   speed: 0,
   setSpeed: (speed) => set({ speed }),
+  downloadsOpen: false,
+  setDownloadsOpen: (downloadsOpen) => set({ downloadsOpen }),
 
   preflight: null,
   setPreflight: (preflight) => set({ preflight }),

@@ -22,6 +22,7 @@ export function CreateInstanceDialog() {
   const [version, setVersion] = useState("");
   const [loader, setLoader] = useState<Loader>("vanilla");
   const [loaderVersion, setLoaderVersion] = useState("");
+  const [fabricApi, setFabricApi] = useState(true);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -32,13 +33,21 @@ export function CreateInstanceDialog() {
     enabled: open && loader !== "vanilla" && !!version,
   });
 
+  const fabricLike = loader === "fabric" || loader === "quilt";
+  const fabricApiVersion = useQuery({
+    queryKey: ["fabricApiVersion", loader, version],
+    queryFn: () => api.fabricApiVersion(loader, version),
+    enabled: open && fabricLike && !!version,
+    staleTime: 10 * 60_000,
+  });
+
   useEffect(() => {
     if (versions.data?.length && !versions.data.some((v) => v.id === version)) setVersion(versions.data[0].id);
   }, [versions.data, version]);
   useEffect(() => setLoaderVersion(""), [loader, version]);
 
   const recommended = useMemo(
-    () => loaderVersions.data?.find((v) => v.stable)?.id ?? loaderVersions.data?.[0]?.id ?? "",
+    () => loaderVersions.data?.find((v) => v.recommended)?.id ?? loaderVersions.data?.find((v) => v.stable)?.id ?? loaderVersions.data?.[0]?.id ?? "",
     [loaderVersions.data],
   );
   const placeholder = version ? `${loader === "vanilla" ? "" : loaderName[loader] + " "}${version}` : "My instance";
@@ -62,6 +71,7 @@ export function CreateInstanceDialog() {
         gameVersion: version,
         loader,
         loaderVersion: loader === "vanilla" ? null : loaderVersion || recommended || null,
+        fabricApi: fabricLike ? fabricApi && !!fabricApiVersion.data : false,
       });
       close();
       go({ name: "instance", id: inst.id });
@@ -75,7 +85,7 @@ export function CreateInstanceDialog() {
   const importPack = async (source: string) => {
     close();
     const jobId = newJobId();
-    useStore.getState().toast({ kind: "info", text: "Importing modpack. It appears in your library once the files are in." });
+    useStore.getState().toast({ kind: "info", text: "Importing modpack. It appears in your library once the files are in.", action: { label: "Show", run: () => useStore.getState().setDownloadsOpen(true) } });
     try {
       const r = await api.importModpack(source, jobId);
       useStore.getState().toast({ kind: "success", text: `${r.instance.name} is ready to play`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
@@ -141,6 +151,9 @@ export function CreateInstanceDialog() {
             {(loader === "forge" || loader === "neoforge") && (
               <p className="fade-in mt-2 text-[12px] text-ink-3">Installed from {loaderName[loader]}'s official installer; the first instance of a version takes about half a minute to patch, later ones are instant.</p>
             )}
+            {fabricLike && (
+              <p className="fade-in mt-2 text-[12px] text-ink-3">{loaderName[loader]} Loader is one version for every Minecraft release. Fabric API is the part made for each one.</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -166,11 +179,12 @@ export function CreateInstanceDialog() {
               <select
                 className="field disabled:opacity-50"
                 disabled={loader === "vanilla" || !loaderVersions.data?.length}
-                value={loaderVersion || recommended}
+                value={loader === "vanilla" || noLoaderBuild || loaderVersions.isError ? "none" : loaderVersion || recommended}
                 onChange={(e) => setLoaderVersion(e.target.value)}
               >
-                {loader === "vanilla" && <option>Not needed</option>}
-                {noLoaderBuild && <option>None for {version}</option>}
+                {loader === "vanilla" && <option value="none">Not needed</option>}
+                {noLoaderBuild && <option value="none">None for {version}</option>}
+                {loaderVersions.isError && <option value="none">Couldn't load versions</option>}
                 {loaderVersions.data?.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.id}
@@ -181,11 +195,33 @@ export function CreateInstanceDialog() {
             </label>
           </div>
 
+          {fabricLike && !noLoaderBuild && (
+            <label className={`fade-in -mt-1 flex items-center gap-3 rounded-[8px] border border-line bg-slate-900 px-3 py-2.5 ${fabricApiVersion.data ? "cursor-pointer" : "opacity-60"}`}>
+              <input
+                type="checkbox"
+                className="accent-[var(--color-gold)]"
+                checked={fabricApi && !!fabricApiVersion.data}
+                disabled={!fabricApiVersion.data}
+                onChange={(e) => setFabricApi(e.target.checked)}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium">Add Fabric API</span>
+                <span className="block truncate text-[12px] text-ink-3">
+                  {fabricApiVersion.isLoading
+                    ? "Finding the build for " + version + "…"
+                    : fabricApiVersion.data
+                      ? `${fabricApiVersion.data} · nearly every Fabric mod needs it`
+                      : `No Fabric API for ${version}`}
+                </span>
+              </span>
+            </label>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-line-soft pt-4">
             <button type="button" className="btn btn-quiet" onClick={close}>
               Cancel
             </button>
-            <button className="btn btn-gold" disabled={busy || !version || noLoaderBuild}>
+            <button className="btn btn-gold" disabled={busy || !version || noLoaderBuild || (loader !== "vanilla" && !recommended)}>
               Create instance
             </button>
           </div>

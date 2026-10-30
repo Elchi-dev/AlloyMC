@@ -106,6 +106,9 @@ pub struct NewInstance {
     pub icon: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
+    /// Fabric and Quilt only: start with Fabric API. Defaults to yes.
+    #[serde(default)]
+    pub fabric_api: Option<bool>,
 }
 
 impl Instance {
@@ -218,6 +221,7 @@ pub async fn duplicate(launcher: &Launcher, id: &str, new_name: &str) -> Result<
             loader_version: src.loader_version.clone(),
             icon: src.icon.clone(),
             group: src.group.clone(),
+            fabric_api: None,
         },
     )
     .await?;
@@ -258,6 +262,7 @@ mod tests {
             loader_version: None,
             icon: None,
             group: None,
+            fabric_api: None,
         };
         let a = create(&launcher, new()).await.unwrap();
         let b = create(&launcher, new()).await.unwrap();

@@ -113,7 +113,10 @@ export function PlayButton({ instance, size = "md" }: { instance: Instance; size
 
   let label = "Play";
   if (game === "running") label = "Stop";
-  else if (progress) label = size === "sm" ? `${Math.round(progressFraction(progress) * 100)}%` : progressLabel(progress);
+  else if (progress) {
+    const pct = progress.total > 0 && progress.unit !== "steps" ? `${Math.floor(progressFraction(progress) * 100)}%` : "";
+    label = size === "sm" ? pct || "…" : `${progressLabel(progress)} ${pct}`.trim();
+  }
   else if (game === "starting") label = "Starting";
   else if (installing) label = "Installing";
 

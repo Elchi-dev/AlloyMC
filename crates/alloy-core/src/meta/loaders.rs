@@ -46,6 +46,8 @@ impl Loader {
 pub struct LoaderVersion {
     pub id: String,
     pub stable: bool,
+    /// The build a new instance of this game version should get (see [`recommended`]).
+    pub recommended: bool,
 }
 
 #[derive(Deserialize)]
@@ -85,10 +87,19 @@ pub async fn versions(launcher: &Launcher, loader: Loader, game: &str) -> Result
                 Loader::Fabric => format!("https://meta.fabricmc.net/v2/versions/loader/{game}"),
                 _ => format!("https://meta.quiltmc.org/v3/versions/loader/{game}"),
             };
-            let entries: Vec<FabricEntry> = get_json(&launcher.http, &url).await?;
+            // Both answer 400 for a game version they have no loader for (1.12.2, say).
+            let resp = launcher.http.get(&url).send().await?;
+            if matches!(resp.status().as_u16(), 400 | 404) {
+                return Ok(vec![]);
+            }
+            let entries: Vec<FabricEntry> = resp.error_for_status()?.json().await?;
             Ok(entries
                 .into_iter()
-                .map(|e| LoaderVersion { stable: e.loader.stable.unwrap_or(!e.loader.version.contains("beta")), id: e.loader.version })
+                .map(|e| LoaderVersion {
+                    stable: e.loader.stable.unwrap_or(!e.loader.version.contains("beta")),
+                    id: e.loader.version,
+                    recommended: false,
+                })
                 .collect())
         }
         Loader::Forge | Loader::NeoForge => {
@@ -99,7 +110,7 @@ pub async fn versions(launcher: &Launcher, loader: Loader, game: &str) -> Result
                 .game_versions
                 .into_iter()
                 .find(|g| g.id == game)
-                .map(|g| g.loaders.into_iter().map(|l| LoaderVersion { id: l.id, stable: l.stable }).collect())
+                .map(|g| g.loaders.into_iter().map(|l| LoaderVersion { id: l.id, stable: l.stable, recommended: false }).collect())
                 .unwrap_or_default())
         }
     }
@@ -109,19 +120,34 @@ pub async fn versions(launcher: &Launcher, loader: Loader, game: &str) -> Result
 /// promotion, NeoForge's newest non-beta, Fabric's and Quilt's newest stable.
 pub async fn recommended(launcher: &Launcher, loader: Loader, game: &str) -> Result<Option<String>> {
     let list = versions(launcher, loader, game).await?;
+    Ok(pick_recommended(launcher, loader, game, &list).await)
+}
+
+/// [`versions`] with the recommended build marked, for the version picker. Fabric and Quilt
+/// loaders are one line for every game version, so their pick is the same everywhere; Forge
+/// and NeoForge builds belong to one game version each.
+pub async fn versions_marked(launcher: &Launcher, loader: Loader, game: &str) -> Result<Vec<LoaderVersion>> {
+    let mut list = versions(launcher, loader, game).await?;
+    if let Some(pick) = pick_recommended(launcher, loader, game, &list).await {
+        list.iter_mut().filter(|v| v.id == pick).for_each(|v| v.recommended = true);
+    }
+    Ok(list)
+}
+
+async fn pick_recommended(launcher: &Launcher, loader: Loader, game: &str, list: &[LoaderVersion]) -> Option<String> {
     if loader == Loader::Forge {
         if let Some(promoted) = super::forge::forge_promoted(launcher, game).await {
             if list.iter().any(|v| v.id == promoted) {
-                return Ok(Some(promoted));
+                return Some(promoted);
             }
         }
     }
     if loader == Loader::NeoForge {
         if let Some(v) = list.iter().find(|v| !v.id.contains("beta") && !v.id.contains("alpha")) {
-            return Ok(Some(v.id.clone()));
+            return Some(v.id.clone());
         }
     }
-    Ok(list.iter().find(|v| v.stable).or(list.first()).map(|v| v.id.clone()))
+    list.iter().find(|v| v.stable).or(list.first()).map(|v| v.id.clone())
 }
 
 /// The loader's version profile, ready to merge onto vanilla. Cached under `versions/`.

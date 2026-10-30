@@ -24,6 +24,7 @@ async fn main() -> alloy_core::Result<()> {
         loader_version: None,
         icon: None,
         group: None,
+        fabric_api: None,
     };
 
     let mut a = instance::create(&launcher, new()).await?;

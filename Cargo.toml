@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/alloy-core", "src-tauri"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 publish = false
 
@@ -22,6 +22,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Dependencies build in parallel pieces (a cold release build is much faster this way);
+# thin LTO still optimizes across crates, and Alloy's own code stays in one unit.
+[profile.release.package."*"]
+codegen-units = 16
 
 # Fast dev builds for dependencies, debuggable code for us
 [profile.dev.package."*"]

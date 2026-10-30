@@ -38,7 +38,15 @@ async fn main() -> alloy_core::Result<()> {
 
     let mut inst = instance::create(
         &launcher,
-        NewInstance { name: format!("smoke {game} {loader:?}"), game_version: game, loader, loader_version, icon: None, group: None },
+        NewInstance {
+            name: format!("smoke {game} {loader:?}"),
+            game_version: game,
+            loader,
+            loader_version,
+            icon: None,
+            group: None,
+            fabric_api: None,
+        },
     )
     .await?;
     println!("instance {} (loader version {:?})", inst.id, inst.loader_version);
