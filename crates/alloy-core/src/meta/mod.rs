@@ -1,5 +1,6 @@
 //! Game and loader metadata: Mojang's manifest, version JSONs, and mod loader profiles.
 
+pub mod forge;
 pub mod loaders;
 pub mod mojang;
 pub mod rules;

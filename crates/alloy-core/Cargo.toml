@@ -26,6 +26,8 @@ dirs = "6"
 flate2 = "1"
 minisign-verify = "0.3"
 semver = "1"
+toml = "0.8"
+percent-encoding = "2"
 
 [dev-dependencies]
 tempfile = "3"

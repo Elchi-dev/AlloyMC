@@ -35,18 +35,12 @@ pub struct MsClient {
 
 impl MsClient {
     pub fn official() -> Self {
-        Self {
-            client_id: OFFICIAL_CLIENT_ID.into(),
-            azure: false,
-        }
+        Self { client_id: OFFICIAL_CLIENT_ID.into(), azure: false }
     }
 
     pub fn from_settings(custom: Option<&str>) -> Self {
         match custom.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(id) => Self {
-                client_id: id.into(),
-                azure: true,
-            },
+            Some(id) => Self { client_id: id.into(), azure: true },
             None => Self::official(),
         }
     }
@@ -228,11 +222,7 @@ struct Texture {
 }
 
 /// Runs the full chain from a Microsoft access token to a Minecraft session.
-pub async fn login_minecraft(
-    http: &reqwest::Client,
-    client: &MsClient,
-    ms_access_token: &str,
-) -> Result<MinecraftSession, AuthError> {
+pub async fn login_minecraft(http: &reqwest::Client, client: &MsClient, ms_access_token: &str) -> Result<MinecraftSession, AuthError> {
     // 1. Xbox Live user token
     let xbl: XblResponse = http
         .post(XBL_AUTH)
@@ -268,17 +258,8 @@ pub async fn login_minecraft(
         let code = resp.json::<XstsError>().await.map(|e| e.xerr).unwrap_or(0);
         return Err(AuthError::Xbox(xsts_message(code).into()));
     }
-    let xsts: XblResponse = resp
-        .error_for_status()
-        .map_err(|e| AuthError::Xbox(format!("XSTS failed ({e})")))?
-        .json()
-        .await?;
-    let uhs = xsts
-        .display_claims
-        .xui
-        .first()
-        .map(|x| x.uhs.clone())
-        .ok_or_else(|| AuthError::Xbox("missing user hash".into()))?;
+    let xsts: XblResponse = resp.error_for_status().map_err(|e| AuthError::Xbox(format!("XSTS failed ({e})")))?.json().await?;
+    let uhs = xsts.display_claims.xui.first().map(|x| x.uhs.clone()).ok_or_else(|| AuthError::Xbox("missing user hash".into()))?;
 
     // 3. Minecraft token
     let mc: McLogin = http
@@ -296,11 +277,8 @@ pub async fn login_minecraft(
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(AuthError::NoGame);
     }
-    let profile: McProfile = resp
-        .error_for_status()
-        .map_err(|e| AuthError::Minecraft(format!("could not load profile ({e})")))?
-        .json()
-        .await?;
+    let profile: McProfile =
+        resp.error_for_status().map_err(|e| AuthError::Minecraft(format!("could not load profile ({e})")))?.json().await?;
 
     let skin = profile.skins.iter().find(|s| s.state == "ACTIVE");
     let cape = profile.capes.iter().find(|s| s.state == "ACTIVE");
@@ -331,9 +309,7 @@ fn xsts_message(code: u64) -> &'static str {
 fn jwt_claim(token: &str, claim: &str) -> Option<String> {
     use base64::Engine;
     let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload.trim_end_matches('='))
-        .ok()?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     match value.get(claim)? {
         serde_json::Value::String(s) => Some(s.clone()),
@@ -356,10 +332,7 @@ mod tests {
     fn parses_redirect() {
         let c = MsClient::official();
         assert!(c.parse_redirect("https://login.live.com/oauth20_authorize.srf?x=1").is_none());
-        let code = c
-            .parse_redirect("https://login.live.com/oauth20_desktop.srf?code=M.C123&lc=1033")
-            .unwrap()
-            .unwrap();
+        let code = c.parse_redirect("https://login.live.com/oauth20_desktop.srf?code=M.C123&lc=1033").unwrap().unwrap();
         assert_eq!(code, "M.C123");
         let err = c
             .parse_redirect("https://login.live.com/oauth20_desktop.srf?error=access_denied&error_description=The+user+has+denied")

@@ -93,14 +93,8 @@ mod tests {
 
     #[test]
     fn maven_paths() {
-        assert_eq!(
-            maven_path("net.fabricmc:fabric-loader:0.16.5").unwrap(),
-            "net/fabricmc/fabric-loader/0.16.5/fabric-loader-0.16.5.jar"
-        );
-        assert_eq!(
-            maven_path("org.lwjgl:lwjgl:3.3.3:natives-windows").unwrap(),
-            "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
-        );
+        assert_eq!(maven_path("net.fabricmc:fabric-loader:0.16.5").unwrap(), "net/fabricmc/fabric-loader/0.16.5/fabric-loader-0.16.5.jar");
+        assert_eq!(maven_path("org.lwjgl:lwjgl:3.3.3:natives-windows").unwrap(), "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar");
         assert_eq!(
             maven_path("de.oceanlabs.mcp:mcp_config:1.20.1@zip").unwrap(),
             "de/oceanlabs/mcp/mcp_config/1.20.1/mcp_config-1.20.1.zip"

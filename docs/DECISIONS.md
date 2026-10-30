@@ -59,6 +59,30 @@ children. Both looks then match on Windows and Arch.
 **Why:** human-readable, survives partial failure, enough for Phase 0. SQLite arrives with
 caching of project metadata (Phase 1).
 
+## ADR-010: Forge and NeoForge from their official installers
+
+**Decision:** Alloy downloads the loader's own installer from its Maven (checked against the
+published `.sha1`) and runs its processors itself, instead of using a third party's
+pre-processed metadata.
+**Why:** it's exactly what the official installer produces, for every version back to 1.6,
+and doesn't depend on anyone else's mirror staying up. The patched jars are shared between
+instances, so only the first instance of a version pays the cost.
+
+## ADR-011: The jar is the source of truth for dependencies
+
+**Decision:** the pre-launch check and the dependency graph read each jar's own metadata;
+platform metadata only adds edges and finds downloads.
+**Why:** platform metadata is incomplete and files added by hand have none. The jar is what
+the loader itself will read.
+
+## ADR-012: Respect CurseForge authors who block launcher downloads
+
+**Decision:** files whose authors opted out of third-party downloads are never fetched from
+CurseForge's CDN behind their backs. Alloy shows the download page and picks the file up
+from the Downloads folder, verified by hash.
+**Why:** it's the author's choice. Watching Downloads makes the manual step one click per
+file instead of a scavenger hunt.
+
 ## ADR-009: WebGL for the molten hover, with a checked fallback
 
 **Decision:** the Play button's molten face is a WebGL shader mounted only while hot. If the

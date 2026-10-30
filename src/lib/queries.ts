@@ -3,7 +3,7 @@ import { QueryClient, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { listen } from "./bus";
 import { useStore, type LogLine } from "./store";
-import type { GameStateEvent, Progress } from "./types";
+import type { GameStateEvent, Job, Progress } from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 } },
@@ -13,7 +13,10 @@ export const useInstances = () => useQuery({ queryKey: ["instances"], queryFn: a
 export const useInstance = (id: string) => useQuery({ queryKey: ["instances", id], queryFn: () => api.instance(id) });
 export const useAccounts = () => useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
 export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
-export const useContent = (id: string) => useQuery({ queryKey: ["content", id], queryFn: () => api.content(id) });
+export const useOverview = (id: string) =>
+  useQuery({ queryKey: ["content", id], queryFn: () => api.overview(id), staleTime: 5_000 });
+export const useMemoryAdvice = (instanceId?: string) =>
+  useQuery({ queryKey: ["memory", instanceId ?? ""], queryFn: () => api.memoryAdvice(instanceId), staleTime: 60_000 });
 export const useGameVersions = (snapshots: boolean) =>
   useQuery({ queryKey: ["versions", snapshots], queryFn: () => api.gameVersions(snapshots), staleTime: 600_000 });
 
@@ -58,7 +61,18 @@ export function useBackendEvents() {
       ),
       listen("instances-changed", () => queryClient.invalidateQueries({ queryKey: ["instances"] })),
       listen("accounts-changed", () => queryClient.invalidateQueries({ queryKey: ["accounts"] })),
-      listen("content-changed", () => queryClient.invalidateQueries({ queryKey: ["content"] })),
+      listen("content-changed", () => {
+        queryClient.invalidateQueries({ queryKey: ["content"] });
+        queryClient.invalidateQueries({ queryKey: ["contentUpdates"] });
+        // Fixes are matched to problems by their wording, which changes when files get named.
+        queryClient.invalidateQueries({ queryKey: ["fixes"] });
+      }),
+      listen("blocked-changed", () => queryClient.invalidateQueries({ queryKey: ["content"] })),
+      listen("blocked-collected", (e: { instanceId: string; titles: string[] }) =>
+        s().toast({ kind: "success", text: `Found ${e.titles.join(", ")} in Downloads and added ${e.titles.length > 1 ? "them" : "it"}` }),
+      ),
+      listen("jobs-changed", (jobs: Job[]) => s().setJobList(jobs)),
+      listen("net-speed", (e: { bytesPerSec: number }) => s().setSpeed(e.bytesPerSec)),
       listen("game-state", (e: GameStateEvent) => {
         if (e.state === "exited") {
           s().setGame(e.instanceId, undefined);
@@ -82,6 +96,7 @@ export function useBackendEvents() {
       }),
     ];
     api.running().then((ids) => ids.forEach((id) => s().setGame(id, "running")));
+    api.jobs().then((j) => s().setJobList(j)).catch(() => {});
     return () => offs.forEach((off) => off());
   }, []);
 }

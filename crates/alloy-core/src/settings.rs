@@ -93,6 +93,9 @@ impl Settings {
 
 /// Writes JSON to a temp file then renames, so a crash never truncates the real file.
 pub async fn write_json_atomic<T: Serialize>(path: &std::path::Path, value: &T) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
     let tmp = path.with_extension("json.tmp");
     tokio::fs::write(&tmp, serde_json::to_vec_pretty(value)?).await?;
     tokio::fs::rename(&tmp, path).await?;

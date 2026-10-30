@@ -15,28 +15,35 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 | Module | Does |
 | --- | --- |
 | `auth` | Microsoft sign-in chain (MS → Xbox Live → XSTS → Minecraft), offline accounts, `SecretStore` trait |
-| `meta` | Mojang manifest and version JSON, rules, library resolution, Fabric/Quilt/Forge/NeoForge version lists |
+| `meta` | Mojang manifest and version JSON, rules, library resolution, loader version lists; `meta::forge` runs Forge and NeoForge installers |
 | `install` | Client jar, libraries, natives, assets, logging config; quick (size) or repair (hash) verification |
 | `java` | Mojang's Java runtimes per version component; system Java detection |
 | `launch` | Argument building, legacy natives, process spawn with line-by-line output |
-| `content` | Modrinth and CurseForge clients, installed-content index, enable/disable/remove |
+| `content` | Modrinth and CurseForge clients and the content engine: `jarmeta` (what jars say), `scan` (cached per file, writes `alloy.lock`), `check` (pre-launch check and dependency graph), `manage` (installs, updates, fixes), `identify` (names unknown files), `listed` and `blocked` (files packs list, CurseForge-only downloads), `links` |
+| `system` | Installed memory and other machine facts |
 | `modpack` | `.mrpack` and CurseForge `.zip` import from file or URL |
 | `textures` | Block textures read from Mojang's client jar with HTTP range requests |
 | `download` | Parallel, retrying, hash-checked downloads written via `.part` + rename |
 
-`examples/` holds runnable checks: `smoke` (create, install, launch), `bench` (timings),
-`textures`, `curseforge`.
+`examples/` holds runnable checks: `smoke` (create, install, launch any loader), `pack`
+(install, scan and check a Modrinth pack), `check`, `content` (install, fixes, updates,
+blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`.
 
 ## src-tauri
 
-`commands.rs` is the whole IPC surface. Long jobs report through events:
+`commands.rs` (instances, launching, accounts) and `content.rs` (everything inside
+instances) are the IPC surface. `jobs.rs` runs long work as jobs the downloads panel lists,
+cancellable and retryable. Long jobs report through events:
 
 | Event | Payload |
 | --- | --- |
 | `job-progress` | `{ jobId, instanceId?, progress: { stage, current, total, unit } }` |
 | `game-state` | `{ instanceId, state: starting / running / exited, exitCode?, error? }` |
 | `game-log` | `{ instanceId, stream, line }` |
-| `instances-changed`, `accounts-changed`, `content-changed`, `textures-ready` | none; the UI refetches |
+| `jobs-changed` | the full job list |
+| `net-speed` | `{ bytesPerSec }`, twice a second while anything downloads |
+| `blocked-collected` | `{ instanceId, titles }` when a CurseForge file arrived in Downloads |
+| `instances-changed`, `accounts-changed`, `content-changed`, `blocked-changed`, `textures-ready` | none; the UI refetches |
 
 `ms_login.rs` opens Microsoft's page in a private webview and reads the auth code from the
 redirect. `secrets.rs` stores refresh tokens in the OS keychain with a file fallback.
@@ -57,7 +64,11 @@ redirect. `secrets.rs` stores refresh tokens in the OS keychain with a file fall
   settings.json  accounts.json  secrets.json (fallback only)
   meta/  versions/  libraries/  assets/  natives/  java/  textures/
   instances/<id>/instance.json  + the game folder (mods/, saves/, ...)
+  instances/<id>/alloy.lock               every file with its hash and source
   instances/<id>/.launcher/content.json   what each installed file is and where it came from
+  instances/<id>/.launcher/scan.json      cached jar metadata and hashes
+  instances/<id>/.launcher/blocked.json   CurseForge files waiting in Downloads
+  meta/installers/                        Forge/NeoForge installers and their processor results
   trash/                          deleted instances, kept until you empty it
 ```
 

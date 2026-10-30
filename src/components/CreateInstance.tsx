@@ -78,11 +78,12 @@ export function CreateInstanceDialog() {
     useStore.getState().toast({ kind: "info", text: "Importing modpack. It appears in your library once the files are in." });
     try {
       const r = await api.importModpack(source, jobId);
-      useStore.getState().toast({ kind: "success", text: `${r.instance.name} is ready to play` });
+      useStore.getState().toast({ kind: "success", text: `${r.instance.name} is ready to play`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
       if (r.blocked.length)
         useStore.getState().toast({
-          kind: "error",
-          text: `${r.blocked.length} file${r.blocked.length > 1 ? "s" : ""} must be downloaded by hand from CurseForge: ${r.blocked.map((b) => b.name).join(", ")}`,
+          kind: "info",
+          text: `${r.blocked.length} file${r.blocked.length > 1 ? "s" : ""} can only be downloaded on CurseForge's website. Alloy lists them on the Content tab and picks them up from Downloads.`,
+          action: { label: "Show", run: () => go({ name: "instance", id: r.instance.id, tab: "content" }) },
         });
     } catch (err) {
       toastError(err);
@@ -138,7 +139,7 @@ export function CreateInstanceDialog() {
               ))}
             </div>
             {(loader === "forge" || loader === "neoforge") && (
-              <p className="mt-2 text-[12px] text-ink-3">Forge and NeoForge installs arrive in the next milestone; the instance is saved and installs then.</p>
+              <p className="fade-in mt-2 text-[12px] text-ink-3">Installed from {loaderName[loader]}'s official installer; the first instance of a version takes about half a minute to patch, later ones are instant.</p>
             )}
           </div>
 

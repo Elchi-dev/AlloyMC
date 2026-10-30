@@ -68,6 +68,23 @@ pub struct CfMod {
     pub date_modified: Option<String>,
     #[serde(default)]
     pub links: Option<CfLinks>,
+    #[serde(default)]
+    pub latest_files_indexes: Vec<CfFileIndex>,
+    #[serde(default)]
+    pub allow_mod_distribution: Option<bool>,
+}
+
+/// One entry of a mod's "latest file per game version and loader" list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfFileIndex {
+    pub game_version: String,
+    pub file_id: u64,
+    pub filename: String,
+    /// 1 release, 2 beta, 3 alpha
+    pub release_type: u8,
+    #[serde(default)]
+    pub mod_loader: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +131,8 @@ pub struct CfFile {
     pub file_date: Option<String>,
     #[serde(default)]
     pub release_type: u8,
+    #[serde(default)]
+    pub file_fingerprint: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,7 +146,7 @@ pub struct CfHash {
 #[serde(rename_all = "camelCase")]
 pub struct CfDependency {
     pub mod_id: u64,
-    /// 3 = required
+    /// 1 embedded library, 2 optional, 3 required, 4 tool, 5 incompatible, 6 include
     pub relation_type: u8,
 }
 
@@ -151,6 +170,11 @@ struct Pagination {
 /// The key compiled into private builds (ALLOY_CURSEFORGE_KEY). Public builds have none.
 pub fn builtin_key() -> Option<&'static str> {
     option_env!("ALLOY_CURSEFORGE_KEY").filter(|k| !k.trim().is_empty())
+}
+
+/// Whether CurseForge calls can work at all (a key in Settings or built in).
+pub async fn has_key(launcher: &Launcher) -> bool {
+    key(launcher).await.is_ok()
 }
 
 /// The key from Settings, else the one built into this build.
@@ -233,25 +257,14 @@ pub async fn search(launcher: &Launcher, q: &SearchQuery) -> Result<SearchPage> 
 
 pub async fn get_mod(launcher: &Launcher, id: u64) -> Result<CfMod> {
     let key = key(launcher).await?;
-    let r: Data<CfMod> = launcher
-        .http
-        .get(format!("{API}/mods/{id}"))
-        .header("x-api-key", key)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let r: Data<CfMod> =
+        launcher.http.get(format!("{API}/mods/{id}")).header("x-api-key", key).send().await?.error_for_status()?.json().await?;
     Ok(r.data)
 }
 
 pub async fn mod_files(launcher: &Launcher, id: u64, game_version: Option<&str>, loader: Option<Loader>) -> Result<Vec<CfFile>> {
     let key = key(launcher).await?;
-    let mut req = launcher
-        .http
-        .get(format!("{API}/mods/{id}/files"))
-        .header("x-api-key", key)
-        .query(&[("pageSize", "50")]);
+    let mut req = launcher.http.get(format!("{API}/mods/{id}/files")).header("x-api-key", key).query(&[("pageSize", "50")]);
     if let Some(v) = game_version {
         req = req.query(&[("gameVersion", v)]);
     }
@@ -276,6 +289,112 @@ pub async fn files(launcher: &Launcher, file_ids: &[u64]) -> Result<Vec<CfFile>>
         .json()
         .await?;
     Ok(r.data)
+}
+
+/// Several mods in one request.
+pub async fn mods(launcher: &Launcher, ids: &[u64]) -> Result<Vec<CfMod>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let key = key(launcher).await?;
+    let r: Data<Vec<CfMod>> = launcher
+        .http
+        .post(format!("{API}/mods"))
+        .header("x-api-key", key)
+        .json(&json!({ "modIds": ids }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(r.data)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintResult {
+    #[serde(default)]
+    exact_matches: Vec<FingerprintMatch>,
+}
+
+#[derive(Deserialize)]
+struct FingerprintMatch {
+    file: CfFile,
+}
+
+/// Which CurseForge files these fingerprints (see `scan::cf_fingerprint`) belong to.
+pub async fn match_fingerprints(launcher: &Launcher, fingerprints: &[u32]) -> Result<Vec<CfFile>> {
+    if fingerprints.is_empty() {
+        return Ok(vec![]);
+    }
+    let key = key(launcher).await?;
+    let r: Data<FingerprintResult> = launcher
+        .http
+        .post(format!("{API}/fingerprints/{MINECRAFT_GAME_ID}"))
+        .header("x-api-key", key)
+        .json(&json!({ "fingerprints": fingerprints }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(r.data.exact_matches.into_iter().map(|m| m.file).collect())
+}
+
+/// Looks a project up by its URL slug.
+pub async fn mod_by_slug(launcher: &Launcher, slug: &str, kind: Option<ContentKind>) -> Result<Option<CfMod>> {
+    let key = key(launcher).await?;
+    let mut params: Vec<(&str, String)> = vec![("gameId", MINECRAFT_GAME_ID.to_string()), ("slug", slug.to_string())];
+    if let Some(k) = kind {
+        params.push(("classId", class_id(k).to_string()));
+    }
+    let r: Paged<Vec<CfMod>> = launcher
+        .http
+        .get(format!("{API}/mods/search"))
+        .header("x-api-key", key)
+        .query(&params)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(r.data.into_iter().find(|m| m.slug == slug))
+}
+
+pub async fn file(launcher: &Launcher, mod_id: u64, file_id: u64) -> Result<CfFile> {
+    let key = key(launcher).await?;
+    let r: Data<CfFile> = launcher
+        .http
+        .get(format!("{API}/mods/{mod_id}/files/{file_id}"))
+        .header("x-api-key", key)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(r.data)
+}
+
+/// A mod's description as HTML.
+pub async fn description(launcher: &Launcher, mod_id: u64) -> Result<String> {
+    let key = key(launcher).await?;
+    let r: Data<String> = launcher
+        .http
+        .get(format!("{API}/mods/{mod_id}/description"))
+        .header("x-api-key", key)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(r.data)
+}
+
+impl CfFile {
+    /// Mod ids of the required dependencies.
+    pub fn required_mods(&self) -> Vec<String> {
+        self.dependencies.iter().filter(|d| d.relation_type == 3).map(|d| d.mod_id.to_string()).collect()
+    }
 }
 
 /// Web page to send people to when an author blocks API downloads.
@@ -314,6 +433,8 @@ pub async fn install_file(launcher: &Launcher, instance: &Instance, m: &CfMod, f
             version_name: Some(file.display_name.clone()),
             icon_url: m.logo.as_ref().map(|l| l.url.clone()),
             sha1,
+            auto: false,
+            requires: Some(file.required_mods()),
         },
     )
     .await

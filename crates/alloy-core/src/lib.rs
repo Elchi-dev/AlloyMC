@@ -17,6 +17,7 @@ pub mod modpack;
 pub mod paths;
 pub mod progress;
 pub mod settings;
+pub mod system;
 pub mod textures;
 pub mod updates;
 pub mod util;
@@ -42,11 +43,7 @@ impl Launcher {
     pub async fn open(dirs: Dirs) -> Result<Self> {
         dirs.ensure().await?;
         let settings = Settings::load(&dirs).await?;
-        Ok(Self {
-            http: http::client()?,
-            dirs,
-            settings: Arc::new(RwLock::new(settings)),
-        })
+        Ok(Self { http: http::client()?, dirs, settings: Arc::new(RwLock::new(settings)) })
     }
 
     pub async fn save_settings(&self, settings: Settings) -> Result<()> {

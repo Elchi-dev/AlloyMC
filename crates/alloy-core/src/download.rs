@@ -29,13 +29,7 @@ pub struct DownloadTask {
 
 impl DownloadTask {
     pub fn new(url: impl Into<String>, dest: impl Into<PathBuf>) -> Self {
-        Self {
-            url: url.into(),
-            dest: dest.into(),
-            sha1: None,
-            size: None,
-            quick: false,
-        }
+        Self { url: url.into(), dest: dest.into(), sha1: None, size: None, quick: false }
     }
     pub fn quick(mut self, quick: bool) -> Self {
         self.quick = quick;
@@ -65,10 +59,7 @@ pub async fn is_valid(task: &DownloadTask) -> bool {
         }
     }
     match &task.sha1 {
-        Some(expected) => sha1_file(&task.dest)
-            .await
-            .map(|h| h.eq_ignore_ascii_case(expected))
-            .unwrap_or(false),
+        Some(expected) => sha1_file(&task.dest).await.map(|h| h.eq_ignore_ascii_case(expected)).unwrap_or(false),
         None => meta.len() > 0,
     }
 }
@@ -111,6 +102,10 @@ fn dedupe(mut tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
     tasks
 }
 
+/// Bytes received by every download since the app started; the downloads panel turns it
+/// into a speed.
+pub static BYTES_RECEIVED: AtomicU64 = AtomicU64::new(0);
+
 pub async fn download_with_retry(http: &reqwest::Client, task: &DownloadTask) -> Result<()> {
     let mut last_err = None;
     for attempt in 0..4u32 {
@@ -136,10 +131,7 @@ async fn download_one(http: &reqwest::Client, task: &DownloadTask) -> Result<()>
     }
     let resp = http.get(&task.url).send().await?;
     if !resp.status().is_success() {
-        return Err(Error::Download {
-            url: task.url.clone(),
-            reason: format!("HTTP {}", resp.status()),
-        });
+        return Err(Error::Download { url: task.url.clone(), reason: format!("HTTP {}", resp.status()) });
     }
 
     let part = task.dest.with_extension(match task.dest.extension() {
@@ -151,6 +143,7 @@ async fn download_one(http: &reqwest::Client, task: &DownloadTask) -> Result<()>
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
+        BYTES_RECEIVED.fetch_add(chunk.len() as u64, Ordering::Relaxed);
         hasher.update(&chunk);
         file.write_all(&chunk).await?;
     }
@@ -161,11 +154,7 @@ async fn download_one(http: &reqwest::Client, task: &DownloadTask) -> Result<()>
         let actual = hex::encode(hasher.finalize());
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = tokio::fs::remove_file(&part).await;
-            return Err(Error::HashMismatch {
-                path: task.dest.clone(),
-                expected: expected.clone(),
-                actual,
-            });
+            return Err(Error::HashMismatch { path: task.dest.clone(), expected: expected.clone(), actual });
         }
     }
     tokio::fs::rename(&part, &task.dest).await?;

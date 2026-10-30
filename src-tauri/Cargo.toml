@@ -25,4 +25,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid.workspace = true
 chrono.workspace = true
 dirs = "6"
+base64 = "0.22"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }

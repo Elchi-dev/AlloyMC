@@ -42,11 +42,5 @@ pub fn noop() -> ProgressFn {
 }
 
 pub fn emit(f: &ProgressFn, stage: Stage, current: u64, total: u64, unit: Unit, message: Option<String>) {
-    f(Progress {
-        stage,
-        current,
-        total,
-        unit,
-        message,
-    })
+    f(Progress { stage, current, total, unit, message })
 }

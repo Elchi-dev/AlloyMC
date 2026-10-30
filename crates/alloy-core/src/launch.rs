@@ -94,24 +94,20 @@ pub async fn prepare(
             }
         }
     }
-    classpath.push(dirs.client_jar(&resolved.vanilla_id).display().to_string());
+    if resolved.forge.is_some() && !resolved.client_jar.exists() {
+        crate::meta::forge::ensure_version_jar(launcher, &json.id, &resolved.vanilla_id).await?;
+    }
+    classpath.push(resolved.client_jar.display().to_string());
 
     // Legacy "map_to_resources" versions read sounds from <game>/resources.
-    let asset_id = json
-        .asset_index
-        .as_ref()
-        .map(|a| a.id.clone())
-        .or_else(|| json.assets.clone())
-        .unwrap_or_else(|| "legacy".into());
+    let asset_id = json.asset_index.as_ref().map(|a| a.id.clone()).or_else(|| json.assets.clone()).unwrap_or_else(|| "legacy".into());
     let virtual_dir = dirs.assets().join("virtual").join(&asset_id);
     if matches!(asset_id.as_str(), "pre-1.6" | "legacy") && virtual_dir.exists() {
         copy_missing(&virtual_dir, &game_dir.join("resources")).await?;
     }
 
-    let (width, height) = instance
-        .resolution
-        .map(|r| (r.width.to_string(), r.height.to_string()))
-        .unwrap_or_else(|| ("854".into(), "480".into()));
+    let (width, height) =
+        instance.resolution.map(|r| (r.width.to_string(), r.height.to_string())).unwrap_or_else(|| ("854".into(), "480".into()));
 
     let mut vars: HashMap<&str, String> = HashMap::new();
     vars.insert("auth_player_name", session.username.clone());
@@ -192,13 +188,7 @@ pub async fn prepare(
     args.extend(instance.game_args.iter().cloned());
 
     let args = args.into_iter().map(|a| substitute(&a, &vars)).collect();
-    Ok(LaunchCommand {
-        java,
-        args,
-        cwd: game_dir,
-        env: instance.env.clone(),
-        secret: session.access_token.clone(),
-    })
+    Ok(LaunchCommand { java, args, cwd: game_dir, env: instance.env.clone(), secret: session.access_token.clone() })
 }
 
 /// Replaces every `${name}` with its value. Unknown placeholders are left as-is.

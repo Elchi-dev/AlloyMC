@@ -36,16 +36,9 @@ impl Dirs {
     }
 
     pub async fn ensure(&self) -> Result<()> {
-        for dir in [
-            self.root.clone(),
-            self.meta(),
-            self.libraries(),
-            self.assets(),
-            self.versions(),
-            self.java(),
-            self.instances(),
-            self.trash(),
-        ] {
+        for dir in
+            [self.root.clone(), self.meta(), self.libraries(), self.assets(), self.versions(), self.java(), self.instances(), self.trash()]
+        {
             tokio::fs::create_dir_all(dir).await?;
         }
         Ok(())

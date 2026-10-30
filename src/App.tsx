@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Backdrop } from "./components/Backdrop";
 import { Rail, TitleBar } from "./components/Chrome";
 import { CreateInstanceDialog } from "./components/CreateInstance";
+import { DropOverlay, useFileDrop } from "./components/Drop";
+import { PreflightDialog } from "./components/Problems";
 import { Toasts } from "./components/ui";
 import { useUpdates } from "./components/Updates";
 import { api, isTauri } from "./lib/api";
@@ -17,9 +19,11 @@ import { LibraryPage } from "./pages/Library";
 const loadInstance = () => import("./pages/Instance");
 const loadDiscover = () => import("./pages/Discover");
 const loadSettings = () => import("./pages/Settings");
+const loadProject = () => import("./pages/Project");
 const InstancePage = lazy(() => loadInstance().then((m) => ({ default: m.InstancePage })));
 const DiscoverPage = lazy(() => loadDiscover().then((m) => ({ default: m.DiscoverPage })));
 const SettingsPage = lazy(() => loadSettings().then((m) => ({ default: m.SettingsPage })));
+const ProjectPage = lazy(() => loadProject().then((m) => ({ default: m.ProjectPage })));
 
 function useTitle(page: Page) {
   const inst = useInstance(page.name === "instance" ? page.id : "");
@@ -29,6 +33,7 @@ function useTitle(page: Page) {
     case "discover": return "Discover";
     case "settings": return "Settings";
     case "instance": return inst.data?.name ?? "Instance";
+    case "project": return "Discover";
   }
 }
 
@@ -99,6 +104,7 @@ export default function App() {
   useAmbient();
   useTextures();
   useUpdates();
+  useFileDrop();
   const page = useStore((s) => s.page);
   const title = useTitle(page);
 
@@ -120,13 +126,14 @@ export default function App() {
           loadInstance();
           loadDiscover();
           loadSettings();
+          loadProject();
         });
       }),
     );
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const key = page.name === "instance" ? `instance-${page.id}` : page.name;
+  const key = page.name === "instance" ? `instance-${page.id}` : page.name === "project" ? `project-${page.platform}-${page.id}` : page.name;
 
   return (
     <div className="flex h-full">
@@ -151,6 +158,7 @@ export default function App() {
                   {page.name === "discover" && <DiscoverPage target={page.target} kind={page.kind} />}
                   {page.name === "instance" && <InstancePage id={page.id} tab={page.tab} />}
                   {page.name === "settings" && <SettingsPage />}
+                  {page.name === "project" && <ProjectPage platform={page.platform} id={page.id} target={page.target} />}
                 </Suspense>
               </motion.div>
             </AnimatePresence>
@@ -158,6 +166,8 @@ export default function App() {
         </main>
       </div>
       <CreateInstanceDialog />
+      <PreflightDialog />
+      <DropOverlay />
       <Toasts />
     </div>
   );

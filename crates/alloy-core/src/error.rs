@@ -20,11 +20,7 @@ pub enum Error {
     Download { url: String, reason: String },
 
     #[error("Checksum mismatch for {}: expected {expected}, got {actual}", path.display())]
-    HashMismatch {
-        path: PathBuf,
-        expected: String,
-        actual: String,
-    },
+    HashMismatch { path: PathBuf, expected: String, actual: String },
 
     #[error("{0}")]
     Auth(#[from] crate::auth::AuthError),

@@ -110,16 +110,10 @@ pub struct FileSecretStore {
 
 impl FileSecretStore {
     pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            lock: Mutex::new(()),
-        }
+        Self { path, lock: Mutex::new(()) }
     }
     fn read(&self) -> HashMap<String, String> {
-        std::fs::read(&self.path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        std::fs::read(&self.path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
     fn write(&self, map: &HashMap<String, String>) -> std::result::Result<(), String> {
         let bytes = serde_json::to_vec(map).map_err(|e| e.to_string())?;
@@ -173,12 +167,7 @@ pub struct Accounts {
 
 impl Accounts {
     pub fn new(launcher: Launcher, secrets: Arc<dyn SecretStore>) -> Self {
-        Self {
-            launcher,
-            secrets,
-            lock: tokio::sync::Mutex::new(()),
-            tokens: Mutex::new(HashMap::new()),
-        }
+        Self { launcher, secrets, lock: tokio::sync::Mutex::new(()), tokens: Mutex::new(HashMap::new()) }
     }
 
     async fn load(&self) -> Result<AccountsFile> {
@@ -249,21 +238,12 @@ impl Accounts {
     }
 
     fn store_ms(&self, client: &MsClient, refresh: &str, s: &MinecraftSession) -> Result<()> {
-        let secrets = MsSecrets {
-            refresh_token: refresh.into(),
-            client: client.clone(),
-        };
-        self.tokens.lock().unwrap().insert(
-            s.uuid.clone(),
-            CachedToken {
-                access_token: s.access_token.clone(),
-                expires_at: s.expires_at,
-                xuid: s.xuid.clone(),
-            },
-        );
-        self.secrets
-            .set(&format!("msa:{}", s.uuid), &serde_json::to_string(&secrets)?)
-            .map_err(AuthError::Secrets)?;
+        let secrets = MsSecrets { refresh_token: refresh.into(), client: client.clone() };
+        self.tokens
+            .lock()
+            .unwrap()
+            .insert(s.uuid.clone(), CachedToken { access_token: s.access_token.clone(), expires_at: s.expires_at, xuid: s.xuid.clone() });
+        self.secrets.set(&format!("msa:{}", s.uuid), &serde_json::to_string(&secrets)?).map_err(AuthError::Secrets)?;
         Ok(())
     }
 
@@ -298,10 +278,7 @@ impl Accounts {
     /// A ready-to-use session for `id`, refreshing Microsoft tokens if they expire within 5 minutes.
     pub async fn session(&self, id: &str) -> Result<LaunchSession> {
         let (accounts, _) = self.list().await?;
-        let account = accounts
-            .into_iter()
-            .find(|a| a.id == id)
-            .ok_or(AuthError::UnknownAccount)?;
+        let account = accounts.into_iter().find(|a| a.id == id).ok_or(AuthError::UnknownAccount)?;
 
         if account.kind == AccountKind::Offline {
             return Ok(LaunchSession {
@@ -320,14 +297,7 @@ impl Accounts {
         };
 
         Ok(LaunchSession {
-            username: self
-                .list()
-                .await?
-                .0
-                .into_iter()
-                .find(|a| a.id == id)
-                .map(|a| a.username)
-                .unwrap_or(account.username),
+            username: self.list().await?.0.into_iter().find(|a| a.id == id).map(|a| a.username).unwrap_or(account.username),
             uuid: account.id,
             access_token: token.access_token,
             user_type: "msa",
@@ -337,11 +307,7 @@ impl Accounts {
 
     /// Exchanges the stored refresh token for a fresh Minecraft token.
     async fn refresh_ms(&self, id: &str, added_at: i64) -> Result<CachedToken> {
-        let raw = self
-            .secrets
-            .get(&format!("msa:{id}"))
-            .map_err(AuthError::Secrets)?
-            .ok_or(AuthError::Expired)?;
+        let raw = self.secrets.get(&format!("msa:{id}")).map_err(AuthError::Secrets)?.ok_or(AuthError::Expired)?;
         let secrets: MsSecrets = serde_json::from_str(&raw).map_err(|_| AuthError::Expired)?;
         let http = &self.launcher.http;
         let refreshed = match secrets.client.refresh(http, &secrets.refresh_token).await {
@@ -354,22 +320,21 @@ impl Accounts {
         let session = login_minecraft(http, &secrets.client, &refreshed.access_token).await?;
         self.store_ms(&secrets.client, &refreshed.refresh_token, &session)?;
         // Name or skin may have changed since last time.
-        self.upsert(Account {
-            id: session.uuid.clone(),
-            kind: AccountKind::Microsoft,
-            username: session.username.clone(),
-            skin_url: session.skin_url.clone(),
-            skin_variant: session.skin_variant.clone(),
-            cape_url: session.cape_url.clone(),
-            added_at,
-            needs_login: false,
-        }, false)
+        self.upsert(
+            Account {
+                id: session.uuid.clone(),
+                kind: AccountKind::Microsoft,
+                username: session.username.clone(),
+                skin_url: session.skin_url.clone(),
+                skin_variant: session.skin_variant.clone(),
+                cape_url: session.cape_url.clone(),
+                added_at,
+                needs_login: false,
+            },
+            false,
+        )
         .await?;
-        Ok(CachedToken {
-            access_token: session.access_token,
-            expires_at: session.expires_at,
-            xuid: session.xuid,
-        })
+        Ok(CachedToken { access_token: session.access_token, expires_at: session.expires_at, xuid: session.xuid })
     }
 
     async fn mark_needs_login(&self, id: &str, value: bool) -> Result<()> {

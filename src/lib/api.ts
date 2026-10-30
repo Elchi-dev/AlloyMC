@@ -3,10 +3,13 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
-  Account, ContentHit, GameVersion, Instance, InstalledContent, LoaderVersion,
-  ModrinthVersion, NewInstance, Platform, SearchPage, SearchQuery, Settings, Loader,
-  FoundUpdate, UpdateOutcome,
+  Account, AddedFile, CfFile, CfMod, ContentHit, ContentUpdate, Dependency, Fix, GameVersion, InstallOutcome,
+  Instance, Job, LinkPreview, Loader, LoaderVersion, MemoryAdvice, ModrinthProject, ModrinthVersion, NewInstance,
+  Overview, Platform, Preflight, SearchPage, SearchQuery, Settings, Suggestion, UpdateResult, FoundUpdate,
+  UpdateOutcome, BlockedFile,
 } from "./types";
+
+type ImportResult = { instance: Instance; blocked: BlockedFile[] };
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -54,19 +57,52 @@ export const api = {
   setActiveAccount: (id: string) => call<void>("set_active_account", { id }),
 
   search: (platform: Platform, query: SearchQuery) => call<SearchPage>("search_content", { platform, query }),
+  modrinthProject: (id: string) => call<ModrinthProject>("modrinth_project", { id }),
   modrinthVersions: (projectId: string, instanceId?: string) =>
     call<ModrinthVersion[]>("modrinth_versions", { projectId, instanceId }),
-  installModrinthVersion: (instanceId: string, versionId: string) =>
-    call<string[]>("install_modrinth_version", { instanceId, versionId }),
-  installModrinthModpack: (versionId: string, jobId: string) =>
-    call<{ instance: Instance }>("install_modrinth_modpack", { versionId, jobId }),
-  importModpack: (source: string, jobId: string) =>
-    call<{ instance: Instance; blocked: { name: string; url: string }[] }>("import_modpack", { source, jobId }),
+  modrinthDependencies: (versionId: string) => call<Dependency[]>("modrinth_dependencies", { versionId }),
+  curseforgeProject: (id: number) => call<CfMod>("curseforge_project", { id }),
+  curseforgeDescription: (id: number) => call<string>("curseforge_description", { id }),
+  curseforgeFiles: (modId: number, instanceId?: string) => call<CfFile[]>("curseforge_files", { modId, instanceId }),
 
-  content: (instanceId: string) => call<InstalledContent[]>("list_content", { instanceId }),
-  setContentEnabled: (instanceId: string, path: string, enabled: boolean) =>
-    call<void>("set_content_enabled", { instanceId, path, enabled }),
-  removeContent: (instanceId: string, path: string) => call<void>("remove_content", { instanceId, path }),
+  installModrinthVersion: (instanceId: string, versionId: string, title?: string) =>
+    call<InstallOutcome>("install_modrinth_version", { instanceId, versionId, title, jobId: newJobId() }),
+  installCurseForgeFile: (instanceId: string, modId: number, fileId: number, title?: string) =>
+    call<InstallOutcome>("install_curseforge_file", { instanceId, modId, fileId, title, jobId: newJobId() }),
+  installModrinthModpack: (versionId: string, jobId: string, title?: string) =>
+    call<ImportResult>("install_modrinth_modpack", { versionId, jobId, title }),
+  installCurseForgeModpack: (modId: number, fileId: number, jobId: string, title?: string) =>
+    call<ImportResult>("install_curseforge_modpack", { modId, fileId, jobId, title }),
+  importModpack: (source: string, jobId: string) => call<ImportResult>("import_modpack", { source, jobId }),
+
+  overview: (instanceId: string) => call<Overview>("content_overview", { instanceId }),
+  contentIcon: (instanceId: string, path: string) => call<string | null>("content_icon", { instanceId, path }),
+  setContentEnabled: (instanceId: string, paths: string[], enabled: boolean) =>
+    call<void>("set_content_enabled", { instanceId, paths, enabled }),
+  removeContent: (instanceId: string, paths: string[]) => call<void>("remove_content", { instanceId, paths }),
+  fixes: (instanceId: string) => call<Suggestion[]>("content_fixes", { instanceId }),
+  applyFix: (instanceId: string, fix: Fix) => call<InstallOutcome>("apply_fix", { instanceId, fix }),
+  checkContentUpdates: (instanceId: string) => call<ContentUpdate[]>("check_content_updates", { instanceId }),
+  applyContentUpdates: (instanceId: string, updates: ContentUpdate[]) =>
+    call<UpdateResult>("apply_content_updates", { instanceId, updates, jobId: newJobId() }),
+  preflight: (instanceId: string) => call<Preflight>("preflight", { instanceId }),
+  cleanupOrphans: (instanceId: string) => call<string[]>("cleanup_orphans", { instanceId }),
+  fetchListedFiles: (instanceId: string) => call<{ installed: string[]; blocked: BlockedFile[] }>("fetch_listed_files", { instanceId }),
+  blockedFiles: (instanceId: string) => call<BlockedFile[]>("blocked_files", { instanceId }),
+  dismissBlocked: (instanceId: string, fileId: number) => call<void>("dismiss_blocked", { instanceId, fileId }),
+  resolveLink: (url: string) => call<LinkPreview>("resolve_link", { url }),
+  addFiles: (instanceId: string | null, paths: string[]) => call<AddedFile[]>("add_files", { instanceId, paths }),
+
+  setInstanceIcon: (id: string, icon: { kind: "image"; data: string } | { kind: "block"; name: string } | { kind: "none" }) =>
+    call<void>("set_instance_icon", { id, icon }),
+  instanceIcon: (id: string) => call<string | null>("instance_icon", { id }),
+  readImageFile: (path: string) => call<string>("read_image_file", { path }),
+  memoryAdvice: (instanceId?: string) => call<MemoryAdvice>("memory_advice", { instanceId }),
+
+  jobs: () => call<Job[]>("list_jobs"),
+  cancelJob: (id: string) => call<boolean>("cancel_job", { id }),
+  retryJob: (id: string) => call<void>("retry_job", { id }),
+  clearJobs: () => call<void>("clear_jobs"),
 };
 
 export type { ContentHit };

@@ -83,9 +83,7 @@ fn verify_sig(public_key_b64: &str, data: &[u8], sig_file: &[u8], what: &str) ->
 }
 
 fn read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<Vec<u8>> {
-    let mut f = zip
-        .by_name(name)
-        .map_err(|_| Error::other(format!("Update rejected: {name} is missing from the file")))?;
+    let mut f = zip.by_name(name).map_err(|_| Error::other(format!("Update rejected: {name} is missing from the file")))?;
     let mut buf = Vec::with_capacity(f.size() as usize);
     f.read_to_end(&mut buf)?;
     Ok(buf)
@@ -105,8 +103,7 @@ pub fn inspect(path: &Path, current_version: &str) -> Result<FoundUpdate> {
 }
 
 pub fn inspect_with_key(path: &Path, current_version: &str, public_key: &str) -> Result<FoundUpdate> {
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)
-        .map_err(|_| Error::other("That file is not an Alloy update"))?;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?).map_err(|_| Error::other("That file is not an Alloy update"))?;
     let manifest_bytes = read_entry(&mut zip, "manifest.json")?;
     let manifest_sig = read_entry(&mut zip, "manifest.json.sig")?;
     verify_sig(public_key, &manifest_bytes, &manifest_sig, "manifest")?;
@@ -116,11 +113,7 @@ pub fn inspect_with_key(path: &Path, current_version: &str, public_key: &str) ->
         return Err(Error::other("That file is not an Alloy update"));
     }
     if manifest.platform != platform() {
-        return Err(Error::other(format!(
-            "This update is for {}, but this is {}",
-            manifest.platform,
-            platform()
-        )));
+        return Err(Error::other(format!("This update is for {}, but this is {}", manifest.platform, platform())));
     }
     let installer = read_entry(&mut zip, &manifest.file)?;
     let installer_sig = read_entry(&mut zip, &format!("{}.sig", manifest.file))?;
@@ -143,7 +136,9 @@ pub fn inspect_with_key(path: &Path, current_version: &str, public_key: &str) ->
 pub fn scan(dirs: &[PathBuf], current_version: &str) -> Option<FoundUpdate> {
     let mut best: Option<FoundUpdate> = None;
     for dir in dirs {
-        let Ok(rd) = std::fs::read_dir(dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            continue;
+        };
         for entry in rd.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some(EXTENSION) {
@@ -286,7 +281,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write_pending(
             dir.path(),
-            &Pending { from: "0.1.0".into(), to: "0.2.0".into(), notes: String::new(), started_at: chrono::Utc::now().timestamp(), backup: PathBuf::new() },
+            &Pending {
+                from: "0.1.0".into(),
+                to: "0.2.0".into(),
+                notes: String::new(),
+                started_at: chrono::Utc::now().timestamp(),
+                backup: PathBuf::new(),
+            },
         )
         .unwrap();
         assert!(take_outcome(dir.path(), "0.1.0").is_none(), "installer still running");

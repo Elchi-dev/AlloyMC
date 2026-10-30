@@ -134,19 +134,13 @@ pub async fn list(launcher: &Launcher) -> Result<Vec<Instance>> {
             Err(_) => continue,
         }
     }
-    out.sort_by(|a, b| {
-        b.last_played
-            .unwrap_or(b.created_at)
-            .cmp(&a.last_played.unwrap_or(a.created_at))
-    });
+    out.sort_by(|a, b| b.last_played.unwrap_or(b.created_at).cmp(&a.last_played.unwrap_or(a.created_at)));
     Ok(out)
 }
 
 pub async fn get(launcher: &Launcher, id: &str) -> Result<Instance> {
     let file = launcher.dirs.instance(id).join(INSTANCE_FILE);
-    let bytes = tokio::fs::read(&file)
-        .await
-        .map_err(|_| Error::NotFound(format!("instance {id}")))?;
+    let bytes = tokio::fs::read(&file).await.map_err(|_| Error::NotFound(format!("instance {id}")))?;
     Ok(serde_json::from_slice(&bytes)?)
 }
 
@@ -228,22 +222,12 @@ pub async fn duplicate(launcher: &Launcher, id: &str, new_name: &str) -> Result<
     )
     .await?;
     copy_dir(&src.dir(launcher), &copy.dir(launcher)).await?;
-    copy = Instance {
-        id: copy.id,
-        name: copy.name,
-        created_at: copy.created_at,
-        last_played: None,
-        play_time_secs: 0,
-        ..src
-    };
+    copy = Instance { id: copy.id, name: copy.name, created_at: copy.created_at, last_played: None, play_time_secs: 0, ..src };
     copy.save(launcher).await?;
     Ok(copy)
 }
 
-fn copy_dir<'a>(
-    from: &'a std::path::Path,
-    to: &'a std::path::Path,
-) -> futures::future::BoxFuture<'a, Result<()>> {
+fn copy_dir<'a>(from: &'a std::path::Path, to: &'a std::path::Path) -> futures::future::BoxFuture<'a, Result<()>> {
     Box::pin(async move {
         tokio::fs::create_dir_all(to).await?;
         let mut rd = tokio::fs::read_dir(from).await?;

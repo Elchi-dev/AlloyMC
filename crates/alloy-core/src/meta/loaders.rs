@@ -1,8 +1,7 @@
 //! Mod loader version lists and launch profiles.
 //!
 //! Fabric and Quilt publish ready-to-merge profiles. Forge and NeoForge versions are listed
-//! from Modrinth's pre-processed metadata; installing them (running the installer
-//! processors) lands in Phase 1.
+//! from Modrinth's loader metadata and installed from their official installers (`forge.rs`).
 
 use serde::{Deserialize, Serialize};
 
@@ -89,10 +88,7 @@ pub async fn versions(launcher: &Launcher, loader: Loader, game: &str) -> Result
             let entries: Vec<FabricEntry> = get_json(&launcher.http, &url).await?;
             Ok(entries
                 .into_iter()
-                .map(|e| LoaderVersion {
-                    stable: e.loader.stable.unwrap_or(!e.loader.version.contains("beta")),
-                    id: e.loader.version,
-                })
+                .map(|e| LoaderVersion { stable: e.loader.stable.unwrap_or(!e.loader.version.contains("beta")), id: e.loader.version })
                 .collect())
         }
         Loader::Forge | Loader::NeoForge => {
@@ -103,28 +99,29 @@ pub async fn versions(launcher: &Launcher, loader: Loader, game: &str) -> Result
                 .game_versions
                 .into_iter()
                 .find(|g| g.id == game)
-                .map(|g| {
-                    g.loaders
-                        .into_iter()
-                        .map(|l| LoaderVersion {
-                            id: l.id,
-                            stable: l.stable,
-                        })
-                        .collect()
-                })
+                .map(|g| g.loaders.into_iter().map(|l| LoaderVersion { id: l.id, stable: l.stable }).collect())
                 .unwrap_or_default())
         }
     }
 }
 
-/// Picks the newest stable loader version, or the newest of any kind.
+/// Picks the version a new instance should get: Forge's own "recommended" (else "latest")
+/// promotion, NeoForge's newest non-beta, Fabric's and Quilt's newest stable.
 pub async fn recommended(launcher: &Launcher, loader: Loader, game: &str) -> Result<Option<String>> {
     let list = versions(launcher, loader, game).await?;
-    Ok(list
-        .iter()
-        .find(|v| v.stable)
-        .or(list.first())
-        .map(|v| v.id.clone()))
+    if loader == Loader::Forge {
+        if let Some(promoted) = super::forge::forge_promoted(launcher, game).await {
+            if list.iter().any(|v| v.id == promoted) {
+                return Ok(Some(promoted));
+            }
+        }
+    }
+    if loader == Loader::NeoForge {
+        if let Some(v) = list.iter().find(|v| !v.id.contains("beta") && !v.id.contains("alpha")) {
+            return Ok(Some(v.id.clone()));
+        }
+    }
+    Ok(list.iter().find(|v| v.stable).or(list.first()).map(|v| v.id.clone()))
 }
 
 /// The loader's version profile, ready to merge onto vanilla. Cached under `versions/`.
@@ -133,9 +130,7 @@ pub async fn profile(launcher: &Launcher, loader: Loader, game: &str, loader_ver
         Loader::Fabric => format!("https://meta.fabricmc.net/v2/versions/loader/{game}/{loader_version}/profile/json"),
         Loader::Quilt => format!("https://meta.quiltmc.org/v3/versions/loader/{game}/{loader_version}/profile/json"),
         Loader::Forge | Loader::NeoForge => {
-            return Err(Error::Unsupported(format!(
-                "{loader:?} installs arrive in Phase 1 (installer processors)"
-            )))
+            return super::forge::profile(launcher, &super::forge::Target::new(loader, game, loader_version)?).await
         }
         Loader::Vanilla => return Err(Error::other("vanilla has no loader profile")),
     };

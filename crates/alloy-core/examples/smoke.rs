@@ -1,6 +1,6 @@
 //! End-to-end smoke test: create an instance, install it, launch it with an offline account.
 //!
-//!   cargo run -p alloy-core --example smoke -- <data-dir> <game-version> [fabric|quilt] [--modrinth sodium]
+//!   cargo run -p alloy-core --example smoke -- <data-dir> <game-version> [fabric|quilt|forge|neoforge] [--loader-version V] [--modrinth sodium] [--seconds 60]
 //!
 //! On a machine with a display the game window opens; headless it gets as far as LWJGL init.
 
@@ -23,8 +23,13 @@ async fn main() -> alloy_core::Result<()> {
     let loader = match args.get(3).map(String::as_str) {
         Some("fabric") => Loader::Fabric,
         Some("quilt") => Loader::Quilt,
+        Some("forge") => Loader::Forge,
+        Some("neoforge") => Loader::NeoForge,
         _ => Loader::Vanilla,
     };
+    let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let loader_version = flag("--loader-version");
+    let seconds: u64 = flag("--seconds").and_then(|s| s.parse().ok()).unwrap_or(60);
     let mod_slug = args.iter().position(|a| a == "--modrinth").and_then(|i| args.get(i + 1)).cloned();
 
     let launcher = Launcher::open(Dirs::new(&dir)).await?;
@@ -33,14 +38,7 @@ async fn main() -> alloy_core::Result<()> {
 
     let mut inst = instance::create(
         &launcher,
-        NewInstance {
-            name: format!("smoke {game} {loader:?}"),
-            game_version: game,
-            loader,
-            loader_version: None,
-            icon: None,
-            group: None,
-        },
+        NewInstance { name: format!("smoke {game} {loader:?}"), game_version: game, loader, loader_version, icon: None, group: None },
     )
     .await?;
     println!("instance {} (loader version {:?})", inst.id, inst.loader_version);
@@ -58,13 +56,8 @@ async fn main() -> alloy_core::Result<()> {
     println!("installed in {:.1?}; main class {}", started.elapsed(), resolved.json.main_class);
 
     if let Some(slug) = mod_slug {
-        let versions = modrinth::project_versions(
-            &launcher,
-            &slug,
-            &modrinth::compatible_loaders(inst.loader),
-            &[inst.game_version.as_str()],
-        )
-        .await?;
+        let versions =
+            modrinth::project_versions(&launcher, &slug, &modrinth::compatible_loaders(inst.loader), &[inst.game_version.as_str()]).await?;
         let v = versions.first().expect("no compatible version");
         let names = modrinth::install_version(&launcher, &inst, &v.id).await?;
         println!("installed mods: {names:?}");
@@ -75,11 +68,11 @@ async fn main() -> alloy_core::Result<()> {
     println!("java: {}", cmd.java.display());
 
     let mut child = launch::spawn(&cmd, Arc::new(|l| println!("  [{}] {}", l.stream, l.line)))?;
-    let status = tokio::time::timeout(Duration::from_secs(60), child.wait()).await;
+    let status = tokio::time::timeout(Duration::from_secs(seconds), child.wait()).await;
     match status {
         Ok(s) => println!("game exited: {:?}", s?.code()),
         Err(_) => {
-            println!("game still running after 60 s, stopping it");
+            println!("game still running after {seconds} s, stopping it");
             child.kill().await?;
         }
     }

@@ -17,7 +17,14 @@ async fn main() -> alloy_core::Result<()> {
     let version = args.get(2).cloned().unwrap_or_else(|| "26.2".into());
     let accounts = Accounts::new(launcher.clone(), Arc::new(FileSecretStore::new(launcher.dirs.root().join("secrets.json"))));
     let account = accounts.add_offline("Bench").await?;
-    let new = || NewInstance { name: format!("bench {version}"), game_version: version.clone(), loader: Loader::Vanilla, loader_version: None, icon: None, group: None };
+    let new = || NewInstance {
+        name: format!("bench {version}"),
+        game_version: version.clone(),
+        loader: Loader::Vanilla,
+        loader_version: None,
+        icon: None,
+        group: None,
+    };
 
     let mut a = instance::create(&launcher, new()).await?;
     let t = Instant::now();

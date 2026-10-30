@@ -217,10 +217,7 @@ impl Library {
         } else if self.natives.is_none() {
             // Fabric-style: name + repository URL.
             if let Some(path) = maven_path(&self.name) {
-                let base = self
-                    .url
-                    .clone()
-                    .unwrap_or_else(|| "https://libraries.minecraft.net/".into());
+                let base = self.url.clone().unwrap_or_else(|| "https://libraries.minecraft.net/".into());
                 let base = if base.ends_with('/') { base } else { format!("{base}/") };
                 out.push(LibraryFile {
                     url: format!("{base}{path}"),
@@ -238,25 +235,9 @@ impl Library {
             if let Some(classifier) = natives.get(super::rules::os_name()) {
                 let bits = if cfg!(target_pointer_width = "64") { "64" } else { "32" };
                 let classifier = classifier.replace("${arch}", bits);
-                if let Some(art) = self
-                    .downloads
-                    .as_ref()
-                    .and_then(|d| d.classifiers.as_ref())
-                    .and_then(|c| c.get(&classifier))
-                {
-                    let path = art
-                        .path
-                        .clone()
-                        .or_else(|| maven_path(&format!("{}:{classifier}", self.name)))
-                        .unwrap_or_default();
-                    out.push(LibraryFile {
-                        path,
-                        url: art.url.clone(),
-                        sha1: art.sha1.clone(),
-                        size: art.size,
-                        native: true,
-                        exclude,
-                    });
+                if let Some(art) = self.downloads.as_ref().and_then(|d| d.classifiers.as_ref()).and_then(|c| c.get(&classifier)) {
+                    let path = art.path.clone().or_else(|| maven_path(&format!("{}:{classifier}", self.name))).unwrap_or_default();
+                    out.push(LibraryFile { path, url: art.url.clone(), sha1: art.sha1.clone(), size: art.size, native: true, exclude });
                 }
             }
         }
@@ -304,10 +285,7 @@ impl VersionJson {
     }
 
     pub fn java_component(&self) -> String {
-        self.java_version
-            .as_ref()
-            .map(|j| j.component.clone())
-            .unwrap_or_else(|| "jre-legacy".into())
+        self.java_version.as_ref().map(|j| j.component.clone()).unwrap_or_else(|| "jre-legacy".into())
     }
 }
 
@@ -344,9 +322,12 @@ mod tests {
             rules: None,
             extract: None,
         };
-        let parent: VersionJson = serde_json::from_str(r#"{"id":"1.21","mainClass":"net.minecraft.client.main.Main","type":"release"}"#).unwrap();
+        let parent: VersionJson =
+            serde_json::from_str(r#"{"id":"1.21","mainClass":"net.minecraft.client.main.Main","type":"release"}"#).unwrap();
         let parent = VersionJson { libraries: vec![lib("org.ow2.asm:asm:9.3"), lib("com.google:gson:2.10")], ..parent };
-        let child: VersionJson = serde_json::from_str(r#"{"id":"fabric","inheritsFrom":"1.21","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient"}"#).unwrap();
+        let child: VersionJson =
+            serde_json::from_str(r#"{"id":"fabric","inheritsFrom":"1.21","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient"}"#)
+                .unwrap();
         let child = VersionJson { libraries: vec![lib("org.ow2.asm:asm:9.7")], ..child };
         let merged = child.merge_onto(parent);
         let names: Vec<_> = merged.libraries.iter().map(|l| l.name.as_str()).collect();

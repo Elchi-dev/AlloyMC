@@ -28,10 +28,7 @@ pub async fn get_code(app: &AppHandle, client: &MsClient) -> Result<String, Auth
 
     let (tx, rx) = oneshot::channel();
     let reply: Reply = Arc::new(Mutex::new(Some(tx)));
-    let url = client
-        .authorize_url()
-        .parse()
-        .map_err(|_| AuthError::Microsoft("bad authorize url".into()))?;
+    let url = client.authorize_url().parse().map_err(|_| AuthError::Microsoft("bad authorize url".into()))?;
 
     let nav_client = client.clone();
     let nav_reply = reply.clone();

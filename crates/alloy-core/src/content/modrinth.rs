@@ -144,6 +144,11 @@ pub struct VersionFile {
 }
 
 impl Version {
+    /// Project ids of the required dependencies.
+    pub fn required_projects(&self) -> Vec<String> {
+        self.dependencies.iter().filter(|d| d.dependency_type == "required").filter_map(|d| d.project_id.clone()).collect()
+    }
+
     pub fn primary_file(&self) -> Option<&VersionFile> {
         self.files.iter().find(|f| f.primary).or(self.files.first())
     }
@@ -210,15 +215,54 @@ pub async fn search(launcher: &Launcher, q: &SearchQuery) -> Result<SearchPage> 
         .error_for_status()?
         .json()
         .await?;
-    Ok(SearchPage {
-        hits: resp.hits.into_iter().map(Into::into).collect(),
-        total: resp.total_hits,
-        offset: resp.offset,
-    })
+    Ok(SearchPage { hits: resp.hits.into_iter().map(Into::into).collect(), total: resp.total_hits, offset: resp.offset })
 }
 
 pub async fn project(launcher: &Launcher, id_or_slug: &str) -> Result<Project> {
     get_json(&launcher.http, &format!("{API}/project/{id_or_slug}")).await
+}
+
+/// Several projects in one request (ids or slugs).
+pub async fn projects(launcher: &Launcher, ids: &[String]) -> Result<Vec<Project>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut out = vec![];
+    // Long id lists make long URLs; 100 per request stays well under any limit.
+    for chunk in ids.chunks(100) {
+        let page: Vec<Project> = launcher
+            .http
+            .get(format!("{API}/projects"))
+            .query(&[("ids", serde_json::to_string(chunk)?)])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        out.extend(page);
+    }
+    Ok(out)
+}
+
+/// Several versions in one request.
+pub async fn versions(launcher: &Launcher, ids: &[String]) -> Result<Vec<Version>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut out = vec![];
+    for chunk in ids.chunks(100) {
+        let page: Vec<Version> = launcher
+            .http
+            .get(format!("{API}/versions"))
+            .query(&[("ids", serde_json::to_string(chunk)?)])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        out.extend(page);
+    }
+    Ok(out)
 }
 
 pub async fn version(launcher: &Launcher, id: &str) -> Result<Version> {
@@ -235,12 +279,7 @@ pub fn compatible_loaders(loader: Loader) -> Vec<&'static str> {
 }
 
 /// Versions of a project, newest first, optionally filtered to an instance's game version + loader.
-pub async fn project_versions(
-    launcher: &Launcher,
-    project_id: &str,
-    loaders: &[&str],
-    game_versions: &[&str],
-) -> Result<Vec<Version>> {
+pub async fn project_versions(launcher: &Launcher, project_id: &str, loaders: &[&str], game_versions: &[&str]) -> Result<Vec<Version>> {
     let mut req = launcher.http.get(format!("{API}/project/{project_id}/version"));
     if !loaders.is_empty() {
         req = req.query(&[("loaders", serde_json::to_string(loaders)?)]);
@@ -308,10 +347,7 @@ pub async fn install_version(launcher: &Launcher, instance: &Instance, version_i
         for dep in v.dependencies.iter().filter(|d| d.dependency_type == "required") {
             let dep_version = match (&dep.version_id, &dep.project_id) {
                 (Some(vid), _) => Some(version(launcher, vid).await?),
-                (None, Some(pid)) if !have.contains(pid) => project_versions(launcher, pid, &loaders, &games)
-                    .await?
-                    .into_iter()
-                    .next(),
+                (None, Some(pid)) if !have.contains(pid) => project_versions(launcher, pid, &loaders, &games).await?.into_iter().next(),
                 _ => None,
             };
             if let Some(dv) = dep_version {
@@ -328,9 +364,7 @@ pub async fn install_version(launcher: &Launcher, instance: &Instance, version_i
 }
 
 async fn install_file(launcher: &Launcher, instance: &Instance, project: &Project, v: &Version) -> Result<()> {
-    let file = v
-        .primary_file()
-        .ok_or_else(|| Error::NotFound(format!("file for {}", v.name)))?;
+    let file = v.primary_file().ok_or_else(|| Error::NotFound(format!("file for {}", v.name)))?;
     let kind = ContentKind::from_modrinth(&project.project_type);
     if kind == ContentKind::Modpack {
         return Err(Error::other("Modpacks install as a new instance, not into one"));
@@ -347,11 +381,7 @@ async fn install_file(launcher: &Launcher, instance: &Instance, project: &Projec
     }
 
     let sha1 = file.hashes.get("sha1").cloned();
-    download_with_retry(
-        &launcher.http,
-        &DownloadTask::new(&file.url, &dest).sha1(sha1.clone()).size(Some(file.size)),
-    )
-    .await?;
+    download_with_retry(&launcher.http, &DownloadTask::new(&file.url, &dest).sha1(sha1.clone()).size(Some(file.size))).await?;
     record(
         launcher,
         instance,
@@ -364,6 +394,8 @@ async fn install_file(launcher: &Launcher, instance: &Instance, project: &Projec
             version_name: Some(v.version_number.clone()),
             icon_url: project.icon_url.clone(),
             sha1,
+            auto: false,
+            requires: Some(v.required_projects()),
         },
     )
     .await

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::content::{curseforge, record, ContentMeta, Source};
+pub use crate::content::manage::BlockedFile;
+use crate::content::{curseforge, ContentMeta, Source};
 use crate::download::{download_all, download_with_retry, DownloadTask};
 use crate::instance::{self, Instance, LinkedPack, NewInstance, PackSource};
 use crate::meta::loaders::Loader;
@@ -19,12 +20,6 @@ pub struct ImportResult {
     pub instance: Instance,
     /// CurseForge files the author won't let launchers download.
     pub blocked: Vec<BlockedFile>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BlockedFile {
-    pub name: String,
-    pub url: String,
 }
 
 // ---------- .mrpack ----------
@@ -61,12 +56,9 @@ impl MrpackIndex {
             .get("minecraft")
             .cloned()
             .ok_or_else(|| Error::other("Modpack doesn't say which Minecraft version it needs"))?;
-        for (key, loader) in [
-            ("fabric-loader", Loader::Fabric),
-            ("quilt-loader", Loader::Quilt),
-            ("neoforge", Loader::NeoForge),
-            ("forge", Loader::Forge),
-        ] {
+        for (key, loader) in
+            [("fabric-loader", Loader::Fabric), ("quilt-loader", Loader::Quilt), ("neoforge", Loader::NeoForge), ("forge", Loader::Forge)]
+        {
             if let Some(v) = self.dependencies.get(key) {
                 return Ok((game, loader, Some(v.clone())));
             }
@@ -108,7 +100,7 @@ struct CfModLoader {
 #[serde(rename_all = "camelCase")]
 struct CfManifestFile {
     #[serde(rename = "projectID")]
-    #[allow(dead_code)] // used by Phase 2 blocked-file matching
+    #[allow(dead_code)]
     project_id: u64,
     #[serde(rename = "fileID")]
     file_id: u64,
@@ -136,6 +128,8 @@ pub async fn import_url(launcher: &Launcher, url: &str, progress: &ProgressFn) -
         .and_then(|mut s| s.next_back().map(str::to_string))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "pack.zip".into());
+    // `COBBLEVERSE%201.7.mrpack` is a file name with a space in it.
+    let name = percent_encoding::percent_decode_str(&name).decode_utf8_lossy().replace(['/', '\\'], "_");
     let dest = launcher.dirs.meta().join("imports").join(&name);
     emit(progress, Stage::Metadata, 0, 1, Unit::Steps, Some(format!("Downloading {name}")));
     download_with_retry(&launcher.http, &DownloadTask::new(url, &dest)).await?;
@@ -178,14 +172,7 @@ async fn import_mrpack(launcher: &Launcher, path: &Path, index: MrpackIndex, pro
     let (game, loader, loader_version) = index.game_and_loader()?;
     let mut inst = instance::create(
         launcher,
-        NewInstance {
-            name: index.name.clone(),
-            game_version: game,
-            loader,
-            loader_version,
-            icon: None,
-            group: None,
-        },
+        NewInstance { name: index.name.clone(), game_version: game, loader, loader_version, icon: None, group: None },
     )
     .await?;
     inst.linked_pack = Some(LinkedPack {
@@ -220,40 +207,42 @@ async fn import_mrpack(launcher: &Launcher, path: &Path, index: MrpackIndex, pro
 
     // Name the files we just installed (best effort; offline import still works).
     let sha1s: Vec<String> = metas.iter().filter_map(|(_, h)| h.clone()).collect();
-    let known = crate::content::modrinth::versions_from_hashes(launcher, &sha1s)
+    let known = crate::content::modrinth::versions_from_hashes(launcher, &sha1s).await.unwrap_or_default();
+    let project_ids: Vec<String> =
+        known.values().map(|v| v.project_id.clone()).collect::<std::collections::HashSet<_>>().into_iter().collect();
+    let projects: HashMap<String, crate::content::modrinth::Project> = crate::content::modrinth::projects(launcher, &project_ids)
         .await
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.id.clone(), p))
+        .collect();
+    let mut index = crate::content::load_index(launcher, &inst).await;
     for (rel, sha1) in metas {
         let v = sha1.as_ref().and_then(|h| known.get(h));
-        record(
-            launcher,
-            &inst,
+        let project = v.and_then(|v| projects.get(&v.project_id));
+        index.files.insert(
             rel,
             ContentMeta {
                 source: if v.is_some() { Source::Modrinth } else { Source::Local },
                 project_id: v.map(|v| v.project_id.clone()),
                 version_id: v.map(|v| v.id.clone()),
-                title: None,
+                title: project.map(|p| p.title.clone()),
                 version_name: v.map(|v| v.version_number.clone()),
-                icon_url: None,
+                icon_url: project.and_then(|p| p.icon_url.clone()),
                 sha1,
+                auto: false,
+                requires: v.map(|v| v.required_projects()),
             },
-        )
-        .await?;
+        );
     }
-    Ok(ImportResult {
-        instance: inst,
-        blocked: vec![],
-    })
+    crate::content::save_index(launcher, &inst, &index).await?;
+    // Files the pack lists but couldn't include (CurseForge-only); fetch what we can.
+    let listed = crate::content::listed::fetch(launcher, &inst).await.unwrap_or_default();
+    Ok(ImportResult { instance: inst, blocked: listed.blocked })
 }
 
 async fn import_cf(launcher: &Launcher, path: &Path, manifest: CfManifest, progress: &ProgressFn) -> Result<ImportResult> {
-    let primary = manifest
-        .minecraft
-        .mod_loaders
-        .iter()
-        .find(|l| l.primary)
-        .or(manifest.minecraft.mod_loaders.first());
+    let primary = manifest.minecraft.mod_loaders.iter().find(|l| l.primary).or(manifest.minecraft.mod_loaders.first());
     let (loader, loader_version) = primary.map(|l| parse_cf_loader(&l.id)).unwrap_or((Loader::Vanilla, None));
 
     let mut inst = instance::create(
@@ -280,20 +269,59 @@ async fn import_cf(launcher: &Launcher, path: &Path, manifest: CfManifest, progr
 
     let ids: Vec<u64> = manifest.files.iter().filter(|f| f.required).map(|f| f.file_id).collect();
     let files = curseforge::files(launcher, &ids).await?;
+    // One batch for every project: names, icons, and which folder each file belongs in
+    // (CurseForge packs list resource packs and shaders alongside mods).
+    let mod_ids: Vec<u64> = files.iter().map(|f| f.mod_id).collect::<std::collections::HashSet<_>>().into_iter().collect();
+    let mods: HashMap<u64, curseforge::CfMod> =
+        curseforge::mods(launcher, &mod_ids).await.unwrap_or_default().into_iter().map(|m| (m.id, m)).collect();
     let mut blocked = vec![];
     let mut tasks = vec![];
     let mut metas = vec![];
     for f in files {
-        let rel = format!("mods/{}", f.file_name);
+        let m = mods.get(&f.mod_id);
+        let folder = match m.and_then(|m| m.class_id) {
+            Some(12) => "resourcepacks",
+            Some(6552) => "shaderpacks",
+            Some(6945) => "datapacks",
+            _ => "mods",
+        };
+        let rel = format!("{folder}/{}", f.file_name);
         let sha1 = f.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
+        let icon = m.and_then(|m| m.logo.as_ref().map(|l| l.thumbnail_url.clone().unwrap_or(l.url.clone())));
         match &f.download_url {
             Some(url) => {
-                tasks.push(DownloadTask::new(url, crate::util::safe_join(&dir, &rel)?).sha1(sha1.clone()));
-                metas.push((rel, f.mod_id, f.id, f.display_name.clone(), sha1));
+                tasks.push(
+                    DownloadTask::new(url, crate::util::safe_join(&dir, &rel)?)
+                        .sha1(sha1.clone())
+                        .size(Some(f.file_length).filter(|s| *s > 0)),
+                );
+                metas.push((
+                    rel,
+                    ContentMeta {
+                        source: Source::CurseForge,
+                        project_id: Some(f.mod_id.to_string()),
+                        version_id: Some(f.id.to_string()),
+                        title: m.map(|m| m.name.clone()),
+                        version_name: Some(f.display_name.clone()),
+                        icon_url: icon,
+                        sha1,
+                        auto: false,
+                        requires: Some(f.required_mods()),
+                    },
+                ));
             }
             None => blocked.push(BlockedFile {
-                name: f.display_name.clone(),
-                url: format!("https://www.curseforge.com/api/v1/mods/{}/files/{}/download", f.mod_id, f.id),
+                title: m.map(|m| m.name.clone()).unwrap_or_else(|| f.display_name.clone()),
+                file_name: f.file_name.clone(),
+                page_url: m
+                    .map(|m| curseforge::manual_download_page(m, f.id))
+                    .unwrap_or_else(|| format!("https://www.curseforge.com/projects/{}", f.mod_id)),
+                sha1,
+                size: f.file_length,
+                mod_id: f.mod_id,
+                file_id: f.id,
+                folder: folder.into(),
+                icon_url: icon,
             }),
         }
     }
@@ -301,23 +329,10 @@ async fn import_cf(launcher: &Launcher, path: &Path, manifest: CfManifest, progr
     download_all(&launcher.http, tasks, concurrency, Stage::Content, progress).await?;
     extract_prefix(path, &format!("{}/", manifest.overrides.trim_end_matches('/')), &dir).await?;
 
-    for (rel, mod_id, file_id, name, sha1) in metas {
-        record(
-            launcher,
-            &inst,
-            rel,
-            ContentMeta {
-                source: Source::CurseForge,
-                project_id: Some(mod_id.to_string()),
-                version_id: Some(file_id.to_string()),
-                title: None,
-                version_name: Some(name),
-                icon_url: None,
-                sha1,
-            },
-        )
-        .await?;
-    }
+    let mut index = crate::content::load_index(launcher, &inst).await;
+    index.files.extend(metas);
+    crate::content::save_index(launcher, &inst, &index).await?;
+    crate::content::blocked::add(launcher, &inst, &blocked).await?;
     Ok(ImportResult { instance: inst, blocked })
 }
 
@@ -331,7 +346,9 @@ async fn extract_prefix(zip_path: &Path, prefix: &str, dest: &Path) -> Result<()
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i)?;
             let name = entry.name().replace('\\', "/");
-            let Some(rel) = name.strip_prefix(&prefix) else { continue };
+            let Some(rel) = name.strip_prefix(&prefix) else {
+                continue;
+            };
             if rel.is_empty() || entry.is_dir() {
                 continue;
             }

@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ChevronLeft, Copy, FolderOpen, MoreHorizontal, Plus, Search, Trash2, Wrench } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowDownToLine, ChevronLeft, Copy, FolderOpen, MoreHorizontal, Search, Trash2, Wrench } from "lucide-react";
 import { InstanceIcon } from "../components/Art";
 import { Ori } from "../components/ori/Ori";
 import { PlayButton } from "../components/PlayButton";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Empty, Segmented, Switch, Tabs } from "../components/ui";
+import { Empty, Segmented, Tabs } from "../components/ui";
 import { api, newJobId } from "../lib/api";
-import { ago, bytes, loaderName, playTime } from "../lib/format";
-import { useContent, useInstance, useSettings } from "../lib/queries";
+import { ago, loaderName, playTime } from "../lib/format";
+import { useInstance, useInstances, useSettings } from "../lib/queries";
+import { ContentTab } from "./InstanceContent";
+import { IconEditor } from "../components/IconEditor";
+import { MemorySlider } from "../components/MemorySlider";
 import { toastError, useStore } from "../lib/store";
-import type { ContentKind, Instance, InstalledContent } from "../lib/types";
+import type { Instance } from "../lib/types";
 
 export function InstancePage({ id, tab = "content" }: { id: string; tab?: "content" | "logs" | "settings" }) {
   const { data: instance, error } = useInstance(id);
@@ -28,7 +31,7 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
           <ChevronLeft size={15} /> Back
         </button>
         <div className="flex items-center gap-5">
-          <InstanceIcon instance={instance} size={72} shared />
+          <EditableIcon instance={instance} />
           <div className="min-w-0 flex-1">
             <h2 className="rise truncate font-pixel text-[32px] font-medium leading-tight" style={{ ["--i" as string]: 1 } as React.CSSProperties}>{instance.name}</h2>
             <div className="rise mt-2 flex flex-wrap items-center gap-1.5" style={{ ["--i" as string]: 2 } as React.CSSProperties}>
@@ -68,6 +71,47 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
         {tab === "settings" && <SettingsTab instance={instance} />}
       </div>
     </div>
+  );
+}
+
+/** The header icon: click to change it, or drop an image onto it. */
+function EditableIcon({ instance }: { instance: Instance }) {
+  const [open, setOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [over, setOver] = useState(false);
+  const iconDrop = useStore((s) => s.iconDrop);
+  const [src, setSrc] = useState<string | null>(null);
+  // An image dropped anywhere on this page (the window's native drop) opens the editor.
+  useEffect(() => {
+    if (iconDrop?.instanceId === instance.id) {
+      setSrc(iconDrop.src);
+      setFile(null);
+      setOpen(true);
+      useStore.getState().setIconDrop(null);
+    }
+  }, [iconDrop, instance.id]);
+  return (
+    <>
+      <button
+        className={`group relative rounded-[8px] transition-transform active:scale-95 ${over ? "scale-105" : ""}`}
+        onClick={() => (setFile(null), setSrc(null), setOpen(true))}
+        onDragOver={(e) => (e.preventDefault(), setOver(true))}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          const f = e.dataTransfer.files[0];
+          if (f?.type.startsWith("image/")) (setFile(f), setOpen(true));
+        }}
+        aria-label="Change icon"
+      >
+        <InstanceIcon instance={instance} size={72} shared />
+        <span className={`absolute inset-0 grid place-items-center rounded-[6px] bg-black/55 text-[11px] font-semibold text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100 ${over ? "opacity-100" : ""}`}>
+          {over ? "Drop" : "Change"}
+        </span>
+      </button>
+      <IconEditor instance={instance} open={open} onClose={() => setOpen(false)} initialFile={file} initialSrc={src} />
+    </>
   );
 }
 
@@ -122,102 +166,6 @@ function MoreMenu({ instance }: { instance: Instance }) {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------- Content ----------
-
-const kindTabs: { value: ContentKind; label: string }[] = [
-  { value: "mod", label: "Mods" },
-  { value: "resourcepack", label: "Resource packs" },
-  { value: "shader", label: "Shaders" },
-];
-
-function ContentTab({ instance }: { instance: Instance }) {
-  const { data } = useContent(instance.id);
-  const go = useStore((s) => s.go);
-  const [kind, setKind] = useState<ContentKind>(instance.loader === "vanilla" ? "resourcepack" : "mod");
-  const [q, setQ] = useState("");
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    data?.forEach((d) => (c[d.kind] = (c[d.kind] ?? 0) + 1));
-    return c;
-  }, [data]);
-  const rows = (data ?? []).filter(
-    (c) => c.kind === kind && (!q || (c.meta?.title ?? c.fileName).toLowerCase().includes(q.toLowerCase())),
-  );
-  const discoverKind = kind === "resourcepack" ? "resourcepack" : kind === "shader" ? "shader" : "mod";
-
-  return (
-    <div className="flex flex-col gap-4 px-8 py-5">
-      <div className="flex items-center gap-3">
-        <Segmented
-          label="Content type"
-          value={kind}
-          onChange={setKind}
-          options={kindTabs.map((k) => ({ value: k.value, label: <>{k.label} <span className="ml-1 text-ink-3">{counts[k.value] ?? 0}</span></> }))}
-        />
-        <div className="relative ml-auto w-60">
-          <Search size={15} className="absolute left-2.5 top-2.5 text-ink-3" />
-          <input className="field pl-8" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <button className="btn btn-gold" onClick={() => go({ name: "discover", target: instance.id, kind: discoverKind })}>
-          <Plus size={15} /> Add {kindTabs.find((k) => k.value === kind)!.label.toLowerCase()}
-        </button>
-      </div>
-
-      {rows.length === 0 ? (
-        <Empty
-          pose={q ? "searching" : "idle"}
-          title={q ? "No matches" : `No ${kindTabs.find((k) => k.value === kind)!.label.toLowerCase()} yet`}
-          body={
-            kind === "mod" && instance.loader === "vanilla"
-              ? "Vanilla instances can't load mods. Create a Fabric, Quilt or NeoForge instance for mods."
-              : "Find them in Discover; they're filtered to this instance's version and loader automatically."
-          }
-        />
-      ) : (
-        <div className="overflow-hidden rounded-[10px] border border-line-soft">
-          {rows.map((c, n) => (
-            <ContentRow key={c.path} instance={instance} item={c} index={n} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ContentRow({ instance, item, index }: { instance: Instance; item: InstalledContent; index: number }) {
-  const title = item.meta?.title ?? item.fileName.replace(/\.(jar|zip)$/, "");
-  const source = item.meta?.source ?? "local";
-  const toggle = () => api.setContentEnabled(instance.id, item.path, !item.enabled).catch(toastError);
-  return (
-    <div
-      className={`rise group flex items-center gap-3 border-b border-line-soft bg-slate-900/70 px-4 py-2.5 transition-[background,opacity] duration-200 last:border-b-0 hover:bg-slate-850 ${item.enabled ? "" : "opacity-55"}`}
-      style={{ ["--i" as string]: index } as React.CSSProperties}
-    >
-      {item.meta?.iconUrl ? (
-        <img src={item.meta.iconUrl} className="h-9 w-9 rounded-[6px] transition-transform duration-200 group-hover:scale-110" alt="" loading="lazy" />
-      ) : (
-        <div className="grid h-9 w-9 place-items-center rounded-[6px] bg-slate-800 text-[13px] font-semibold text-ink-3">{title.slice(0, 1).toUpperCase()}</div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{title}</div>
-        <div className="truncate text-[12px] text-ink-3">{item.meta?.versionName ?? item.fileName}</div>
-      </div>
-      <span className={`chip ${source === "modrinth" ? "text-grass" : source === "curseforge" ? "text-[#f16436]" : ""}`}>
-        {source === "modrinth" ? "Modrinth" : source === "curseforge" ? "CurseForge" : "Local file"}
-      </span>
-      <span className="w-16 text-right text-[12px] text-ink-3 tabular-nums">{bytes(item.size)}</span>
-      <Switch on={item.enabled} onChange={toggle} label={`${item.enabled ? "Disable" : "Enable"} ${title}`} />
-      <button
-        aria-label={`Remove ${title}`}
-        onClick={() => api.removeContent(instance.id, item.path).catch(toastError)}
-        className="grid h-8 w-8 place-items-center rounded-[6px] text-ink-3 opacity-0 hover:bg-slate-800 hover:text-redstone group-hover:opacity-100 focus:opacity-100"
-      >
-        <Trash2 size={15} />
-      </button>
     </div>
   );
 }
@@ -318,6 +266,7 @@ function LogView({ lines, empty, follow, setFollow }: { lines: { line: string; l
 
 function SettingsTab({ instance }: { instance: Instance }) {
   const { data: settings } = useSettings();
+  const { data: instances } = useInstances();
   const [draft, setDraft] = useState(instance);
   useEffect(() => setDraft(instance), [instance]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(instance);
@@ -325,7 +274,8 @@ function SettingsTab({ instance }: { instance: Instance }) {
 
   const save = async () => {
     try {
-      await api.updateInstance(draft);
+      // The icon is edited elsewhere; never write back a stale one.
+      await api.updateInstance({ ...draft, icon: instance.icon });
       useStore.getState().toast({ kind: "success", text: "Instance settings saved" });
     } catch (e) {
       toastError(e);
@@ -337,16 +287,16 @@ function SettingsTab({ instance }: { instance: Instance }) {
       <Row label="Name">
         <input className="field" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
       </Row>
-      <Row label="Memory" hint={`${(memory / 1024).toFixed(1)} GB. Most modpacks need 6–8 GB; vanilla runs well on 2–4 GB.`}>
-        <input
-          type="range"
-          min={1024}
-          max={16384}
-          step={512}
-          value={memory}
-          onChange={(e) => setDraft({ ...draft, memoryMb: Number(e.target.value) })}
-          className="w-full accent-[var(--color-gold)]"
-        />
+      <Row label="Group" hint="Instances with the same group sit together in the library.">
+        <input className="field" placeholder="None" value={draft.group ?? ""} onChange={(e) => setDraft({ ...draft, group: e.target.value || null })} list="instance-groups" />
+        <datalist id="instance-groups">
+          {[...new Set((instances ?? []).map((i) => i.group).filter(Boolean))].map((g) => (
+            <option key={g!} value={g!} />
+          ))}
+        </datalist>
+      </Row>
+      <Row label="Memory" plain>
+        <MemorySlider value={memory} onChange={(mb) => setDraft({ ...draft, memoryMb: mb })} instanceId={instance.id} />
       </Row>
       <Row label="Java" hint="Leave empty to use the exact Java version this Minecraft version needs (downloaded automatically).">
         <input
@@ -394,14 +344,15 @@ function SettingsTab({ instance }: { instance: Instance }) {
   );
 }
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Row({ label, hint, children, plain = false }: { label: string; hint?: string; children: React.ReactNode; plain?: boolean }) {
+  const Tag = plain ? "div" : "label";
   return (
-    <label className="grid grid-cols-[160px_1fr] items-start gap-4">
+    <Tag className="grid grid-cols-[160px_1fr] items-start gap-4">
       <span className="pt-2 text-[13px] font-medium text-ink-2">{label}</span>
       <span>
         {children}
         {hint && <span className="mt-1.5 block text-[12px] text-ink-3">{hint}</span>}
       </span>
-    </label>
+    </Tag>
   );
 }

@@ -71,11 +71,8 @@ pub async fn version_json(launcher: &Launcher, id: &str) -> Result<VersionJson> 
     let path = launcher.dirs.version_json(id);
     if !path.exists() {
         let manifest = manifest(launcher).await?;
-        let entry = manifest
-            .versions
-            .iter()
-            .find(|v| v.id == id)
-            .ok_or_else(|| crate::Error::NotFound(format!("Minecraft version {id}")))?;
+        let entry =
+            manifest.versions.iter().find(|v| v.id == id).ok_or_else(|| crate::Error::NotFound(format!("Minecraft version {id}")))?;
         download_all(
             &launcher.http,
             vec![DownloadTask::new(&entry.url, &path).sha1(entry.sha1.clone())],

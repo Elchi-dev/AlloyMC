@@ -35,9 +35,15 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2.7.2
         version: 2.7.2
+      dompurify:
+        specifier: ^3.4.17
+        version: 3.4.17
       lucide-react:
         specifier: ^1.61.0
         version: 1.61.0(@types/react@19.3.0)(react@19.3.1)
+      marked:
+        specifier: ^15.0.12
+        version: 15.0.12
       motion:
         specifier: ^14.6.0
         version: 14.6.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -411,6 +417,9 @@ packages:
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
 
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
+
   '@vitejs/plugin-react@6.1.2':
     resolution: {integrity: sha512-fhJNGUdscQa4HkI0xFxwonWyhnVReCPDbXI7FH7jmzpnVCrFQI7PRrhWecO263610vOrs9tr2Y4xcf8uAdFxbw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -433,6 +442,9 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   enhanced-resolve@5.26.0:
     resolution: {integrity: sha512-9vhedylFonb2YGogzUKX6+Ja72gOJbN1QHAqdrvqLwhdl/QWbKopzoUC9EbQNVsAns/bx/4uyqalrQAoy1IByw==}
@@ -621,6 +633,11 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  marked@15.0.12:
+    resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
+    engines: {node: '>= 18'}
+    hasBin: true
 
   motion-dom@14.6.0:
     resolution: {integrity: sha512-lIojTl9aYSPIkeOOSzBliy1nNvpdO3JtVzW2WgTXQlOP4ZMuJhtWO3fP7OD4TVFwlRucdvxlDSMkL+fEQnQ52A==}
@@ -997,6 +1014,9 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  '@types/trusted-types@2.0.7':
+    optional: true
+
   '@vitejs/plugin-react@6.1.2(vite@8.3.5(jiti@2.7.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
@@ -1005,6 +1025,10 @@ snapshots:
   csstype@3.2.3: {}
 
   detect-libc@2.1.2: {}
+
+  dompurify@3.4.17:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
 
   enhanced-resolve@5.26.0:
     dependencies:
@@ -1138,6 +1162,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  marked@15.0.12: {}
 
   motion-dom@14.6.0:
     dependencies:

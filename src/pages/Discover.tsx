@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Check, Download, Heart, Search } from "lucide-react";
 import { Empty, Segmented } from "../components/ui";
+import { reportOutcome } from "../components/Problems";
+import { LinkDialog } from "./InstanceContent";
 import { api, newJobId } from "../lib/api";
 import { ago, compact, loaderName } from "../lib/format";
 import { useInstances, useSettings } from "../lib/queries";
@@ -34,6 +36,7 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
   const [targetId, setTargetId] = useState<string | undefined>(target);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("relevance");
+  const [linkUrl, setLinkUrl] = useState("");
   const query = useDebounced(q);
   const instance = instances?.find((i) => i.id === targetId);
   const forPack = kind === "modpack";
@@ -67,7 +70,14 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
             className="field h-10 pl-9 text-[14px]"
             placeholder={`Search ${kinds.find((k) => k.value === kind)!.label.toLowerCase()} on ${platform === "modrinth" ? "Modrinth" : "CurseForge"}`}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              // A pasted project link opens the install dialog instead of searching for it.
+              if (/^(https?:\/\/)?(www\.)?(modrinth\.com|curseforge\.com)\//i.test(v.trim())) {
+                setLinkUrl(v.trim());
+                setQ("");
+              } else setQ(v);
+            }}
           />
         </div>
         <Segmented
@@ -132,6 +142,7 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
           </div>
         </>
       )}
+      <LinkDialog open={!!linkUrl} onClose={() => setLinkUrl("")} instance={forPack ? undefined : instance} initialUrl={linkUrl} />
     </div>
   );
 }
@@ -140,35 +151,48 @@ function ResultRow({ hit, instance, index }: { hit: ContentHit; instance?: Insta
   const [state, setState] = useState<"idle" | "busy" | "done">("idle");
   const go = useStore((s) => s.go);
 
-  const install = async () => {
+  const install = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     setState("busy");
+    const pack = hit.kind === "modpack";
+    const none = `${hit.title} has no version for ${instance?.gameVersion} ${instance ? loaderName[instance.loader] : ""}`;
     try {
-      if (hit.source === "curseforge") throw "CurseForge installs from Discover arrive in Phase 2. Import CurseForge modpacks as a .zip for now.";
-      const versions = await api.modrinthVersions(hit.id, hit.kind === "modpack" ? undefined : instance?.id);
-      const v = versions.find((x) => x.version_type === "release") ?? versions[0];
-      if (!v) throw `${hit.title} has no version for ${instance?.gameVersion} ${instance ? loaderName[instance.loader] : ""}`;
-      if (hit.kind === "modpack") {
-        useStore.getState().toast({ kind: "info", text: `Installing ${hit.title}. You can keep browsing.` });
-        const r = await api.installModrinthModpack(v.id, newJobId());
-        useStore.getState().toast({
-          kind: "success",
-          text: `${hit.title} is ready`,
-          action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) },
-        });
-      } else if (instance) {
-        const names = await api.installModrinthVersion(instance.id, v.id);
-        if (names.length > 1) useStore.getState().toast({ kind: "success", text: `Also installed ${names.slice(1).join(", ")}` });
+      if (pack) useStore.getState().toast({ kind: "info", text: `Installing ${hit.title}. Follow it in the downloads panel.` });
+      if (hit.source === "curseforge") {
+        const files = await api.curseforgeFiles(Number(hit.id), pack ? undefined : instance?.id);
+        const f = files.find((x) => x.releaseType === 1) ?? files[0];
+        if (!f) throw none;
+        if (pack) {
+          const r = await api.installCurseForgeModpack(Number(hit.id), f.id, newJobId(), hit.title);
+          useStore.getState().toast({ kind: "success", text: `${hit.title} is ready`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
+        } else if (instance) reportOutcome(await api.installCurseForgeFile(instance.id, Number(hit.id), f.id, hit.title));
+      } else {
+        const versions = await api.modrinthVersions(hit.id, pack ? undefined : instance?.id);
+        const v = versions.find((x) => x.version_type === "release") ?? versions[0];
+        if (!v) throw none;
+        if (pack) {
+          const r = await api.installModrinthModpack(v.id, newJobId(), hit.title);
+          useStore.getState().toast({ kind: "success", text: `${hit.title} is ready`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
+        } else if (instance) reportOutcome(await api.installModrinthVersion(instance.id, v.id, hit.title));
       }
       setState("done");
-    } catch (e) {
-      toastError(e);
+    } catch (err) {
+      toastError(err);
       setState("idle");
     }
   };
+  const openPage = () => go({ name: "project", platform: hit.source, id: hit.id, target: instance?.id });
 
   const tint = hit.color != null ? `#${hit.color.toString(16).padStart(6, "0")}` : undefined;
   return (
-    <article className="card rise group flex items-center gap-4 rounded-[10px] p-3.5 pr-4" style={{ ["--i" as string]: index } as React.CSSProperties}>
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={openPage}
+      onKeyDown={(e) => e.key === "Enter" && openPage()}
+      className="card rise group flex cursor-pointer items-center gap-4 rounded-[10px] p-3.5 pr-4"
+      style={{ ["--i" as string]: Math.min(index, 16) } as React.CSSProperties}
+    >
       <div className="relative shrink-0">
         {tint && <div className="absolute inset-0 rounded-[10px] opacity-30 blur-xl transition-opacity duration-300 group-hover:opacity-60" style={{ background: tint }} aria-hidden />}
         {hit.iconUrl ? (

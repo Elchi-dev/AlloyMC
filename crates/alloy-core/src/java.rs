@@ -10,8 +10,7 @@ use crate::download::{download_all, DownloadTask};
 use crate::progress::{ProgressFn, Stage};
 use crate::{Error, Launcher, Result};
 
-const RUNTIME_INDEX: &str =
-    "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+const RUNTIME_INDEX: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct JavaInstall {
@@ -113,11 +112,7 @@ pub async fn ensure(launcher: &Launcher, component: &str, major: u32, progress: 
                 .into_iter()
                 .find(|j| j.major == Some(major))
                 .map(|j| j.path)
-                .ok_or_else(|| {
-                    Error::NotFound(format!(
-                        "Java {major}. Install it or set a Java path in the instance settings"
-                    ))
-                })
+                .ok_or_else(|| Error::NotFound(format!("Java {major}. Install it or set a Java path in the instance settings")))
         }
     }
 }
@@ -151,11 +146,7 @@ async fn install_mojang(launcher: &Launcher, component: &str, home: &Path, progr
             "directory" => tokio::fs::create_dir_all(&dest).await?,
             "file" => {
                 if let Some(dl) = &file.downloads {
-                    tasks.push(
-                        DownloadTask::new(&dl.raw.url, &dest)
-                            .sha1(Some(dl.raw.sha1.clone()))
-                            .size(Some(dl.raw.size)),
-                    );
+                    tasks.push(DownloadTask::new(&dl.raw.url, &dest).sha1(Some(dl.raw.sha1.clone())).size(Some(dl.raw.size)));
                     if file.executable {
                         executables.push(dest);
                     }
@@ -200,12 +191,7 @@ pub async fn detect_all(launcher: &Launcher) -> Vec<JavaInstall> {
             let bin = java_binary(&entry.path());
             if bin.exists() {
                 let (major, version) = probe(&bin).await.unwrap_or((None, None));
-                out.push(JavaInstall {
-                    path: bin,
-                    major,
-                    version,
-                    managed: true,
-                });
+                out.push(JavaInstall { path: bin, major, version, managed: true });
             }
         }
     }
@@ -223,12 +209,7 @@ async fn detect_system() -> Vec<JavaInstall> {
     let mut out = vec![];
     for path in candidates {
         if let Some((major, version)) = probe(&path).await {
-            out.push(JavaInstall {
-                path,
-                major,
-                version,
-                managed: false,
-            });
+            out.push(JavaInstall { path, major, version, managed: false });
         }
     }
     out
@@ -237,11 +218,7 @@ async fn detect_system() -> Vec<JavaInstall> {
 /// Runs `java -version` and parses the major version from stderr.
 pub async fn probe(bin: &Path) -> Option<(Option<u32>, Option<String>)> {
     // javaw prints nothing; probe java.exe next to it instead.
-    let bin = if bin.file_name().map(|n| n == "javaw.exe").unwrap_or(false) {
-        bin.with_file_name("java.exe")
-    } else {
-        bin.to_path_buf()
-    };
+    let bin = if bin.file_name().map(|n| n == "javaw.exe").unwrap_or(false) { bin.with_file_name("java.exe") } else { bin.to_path_buf() };
     let out = tokio::process::Command::new(&bin).arg("-version").output().await.ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
     let version = text.split('"').nth(1).map(str::to_string);

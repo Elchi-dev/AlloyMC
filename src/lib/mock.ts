@@ -2,7 +2,7 @@
 // Search hits the real Modrinth API (it allows CORS); everything else is in memory.
 
 import { emitLocal } from "./bus";
-import type { Account, Instance, InstalledContent, Settings, Stage } from "./types";
+import type { Account, ContentItem, Instance, Settings, Stage } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const inst = (p: Partial<Instance> & Pick<Instance, "id" | "name" | "gameVersion" | "loader">): Instance => ({
@@ -30,12 +30,15 @@ const db = {
   running: new Set<string>(),
 };
 
-const content: InstalledContent[] = [
-  { path: "mods/sodium.jar", fileName: "sodium-fabric-0.8.13+mc1.21.1.jar", kind: "mod", enabled: true, size: 1_204_000, meta: { source: "modrinth", title: "Sodium", versionName: "0.8.13", iconUrl: null } },
-  { path: "mods/lithium.jar", fileName: "lithium-fabric-0.15.0.jar", kind: "mod", enabled: true, size: 760_000, meta: { source: "modrinth", title: "Lithium", versionName: "0.15.0" } },
-  { path: "mods/iris.jar", fileName: "iris-fabric-1.9.1.jar", kind: "mod", enabled: false, size: 2_400_000, meta: { source: "modrinth", title: "Iris Shaders", versionName: "1.9.1" } },
-  { path: "mods/jei.jar", fileName: "jei-1.21.1-fabric-19.21.jar", kind: "mod", enabled: true, size: 1_900_000, meta: { source: "curseforge", title: "Just Enough Items", versionName: "19.21.0" } },
-  { path: "resourcepacks/faithful.zip", fileName: "Faithful 32x.zip", kind: "resourcepack", enabled: true, size: 9_100_000, meta: null },
+const item = (p: Partial<ContentItem> & Pick<ContentItem, "path" | "title">): ContentItem => ({
+  fileName: p.path.split("/")[1], kind: "mod", enabled: true, size: 1_000_000, formats: ["fabric"], hasJarIcon: false, requires: [], requiredBy: [], ...p,
+});
+const content: ContentItem[] = [
+  item({ path: "mods/sodium.jar", title: "Sodium", size: 1_204_000, meta: { source: "modrinth", versionName: "0.8.13" }, requiredBy: ["mods/iris.jar"] }),
+  item({ path: "mods/lithium.jar", title: "Lithium", size: 760_000, meta: { source: "modrinth", versionName: "0.15.0" } }),
+  item({ path: "mods/iris.jar", title: "Iris Shaders", enabled: false, size: 2_400_000, meta: { source: "modrinth", versionName: "1.9.1" }, requires: ["mods/sodium.jar"] }),
+  item({ path: "mods/jei.jar", title: "Just Enough Items", size: 1_900_000, meta: { source: "curseforge", versionName: "19.21.0" } }),
+  item({ path: "resourcepacks/faithful.zip", title: "Faithful 32x", kind: "resourcepack", size: 9_100_000, formats: [] }),
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -139,9 +142,13 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     case "install_modrinth_version": await sleep(900); emitLocal("content-changed", null); return r(["Installed"]);
     case "install_modrinth_modpack":
     case "import_modpack": await fakeJob(args.jobId, null); throw "Modpack installs run in the desktop app.";
-    case "list_content": return r(content);
-    case "set_content_enabled": { const c = content.find((x) => x.path === args.path); if (c) c.enabled = args.enabled; emitLocal("content-changed", null); return r(undefined); }
-    case "remove_content": { const idx = content.findIndex((x) => x.path === args.path); if (idx >= 0) content.splice(idx, 1); emitLocal("content-changed", null); return r(undefined); }
+    case "content_overview": return r({ items: content, report: { problems: [], requires: {}, requiredBy: {}, orphans: [], modCount: content.length }, blocked: [], listedMissing: false });
+    case "set_content_enabled": { content.filter((x) => args.paths.includes(x.path)).forEach((c) => (c.enabled = args.enabled)); emitLocal("content-changed", null); return r(undefined); }
+    case "remove_content": { for (const p of args.paths) { const idx = content.findIndex((x) => x.path === p); if (idx >= 0) content.splice(idx, 1); } emitLocal("content-changed", null); return r(undefined); }
+    case "check_content_updates": case "content_fixes": case "list_jobs": return r([]);
+    case "preflight": return r({ errors: [], warnings: [], system: [] });
+    case "memory_advice": return r({ totalMb: 32768, maxGameMb: 28672, recommendedMb: args.instanceId ? 4096 : null, mods: args.instanceId ? 4 : null });
+    case "instance_icon": case "content_icon": return r(null);
   }
   throw `mock: unknown command ${cmd}`;
 }

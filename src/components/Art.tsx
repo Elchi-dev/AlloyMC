@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
 import type { Account, Instance } from "../lib/types";
 import { hueOf } from "../lib/format";
 import { useStore } from "../lib/store";
@@ -75,8 +77,14 @@ export function OreBlock({ seed, size = 48 }: { seed: string; size?: number }) {
 /** An instance's icon: its own image, or its ore. `shared` links it across pages (morph). */
 export function InstanceIcon({ instance, size = 48, shared = false, tilt = false }: { instance: Pick<Instance, "id" | "icon">; size?: number; shared?: boolean; tilt?: boolean }) {
   const [broken, setBroken] = useState(false);
-  const src = instance.icon && !broken && instance.icon.startsWith("http") ? instance.icon : undefined;
-  const inner = src ? (
+  const icon = instance.icon ?? "";
+  // A picture the user chose lives in the instance folder; fetched once as a data URL.
+  const own = useQuery({ queryKey: ["instanceIcon", instance.id, icon], queryFn: () => api.instanceIcon(instance.id), enabled: icon === "icon.png", staleTime: Infinity });
+  const block = icon.startsWith("block:") ? icon.slice(6) : null;
+  const src = broken ? undefined : icon.startsWith("http") ? icon : icon === "icon.png" ? (own.data ?? undefined) : undefined;
+  const inner = block ? (
+    <BlockTile name={block} size={size} />
+  ) : src ? (
     <img
       src={src}
       width={size}

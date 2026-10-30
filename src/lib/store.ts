@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { FoundUpdate, Progress } from "./types";
+import type { FoundUpdate, Job, Platform, Preflight, Progress } from "./types";
 
 export type Page =
   | { name: "home" }
   | { name: "library" }
   | { name: "discover"; target?: string; kind?: "mod" | "modpack" | "resourcepack" | "shader" }
   | { name: "instance"; id: string; tab?: "content" | "logs" | "settings" }
+  | { name: "project"; platform: Platform; id: string; target?: string }
   | { name: "settings" };
 
 export interface LogLine {
@@ -55,6 +56,25 @@ interface State {
   /** A verified update waiting to be applied. */
   update: FoundUpdate | null;
   setUpdate: (u: FoundUpdate | null) => void;
+
+  /** Every job the downloads panel shows. */
+  jobList: Job[];
+  setJobList: (j: Job[]) => void;
+  /** Download speed while anything runs, bytes per second. */
+  speed: number;
+  setSpeed: (n: number) => void;
+
+  /** Problems found right before launching; the dialog shows while this is set. */
+  preflight: { instanceId: string; result: Preflight } | null;
+  setPreflight: (p: { instanceId: string; result: Preflight } | null) => void;
+
+  /** What the window is being dragged over, for the drop overlay. */
+  dropping: boolean;
+  setDropping: (v: boolean) => void;
+
+  /** An image dropped on an instance page, waiting for the icon editor. */
+  iconDrop: { instanceId: string; src: string } | null;
+  setIconDrop: (d: { instanceId: string; src: string } | null) => void;
 }
 
 const MAX_LOG = 5000;
@@ -72,11 +92,12 @@ export const useStore = create<State>((set, get) => ({
   progress: {},
   jobs: {},
   setProgress: (jobId, instanceId, p) =>
-    set((s) =>
-      instanceId
+    set((s) => ({
+      ...(instanceId
         ? { progress: { ...s.progress, [instanceId]: p.stage === "done" ? undefined : p } }
-        : { jobs: { ...s.jobs, [jobId]: p.stage === "done" ? undefined : p } },
-    ),
+        : { jobs: { ...s.jobs, [jobId]: p.stage === "done" ? undefined : p } }),
+      jobList: s.jobList.some((j) => j.id === jobId) ? s.jobList.map((j) => (j.id === jobId ? { ...j, progress: p } : j)) : s.jobList,
+    })),
   clearProgress: (id) => set((s) => ({ progress: { ...s.progress, [id]: undefined } })),
 
   game: {},
@@ -107,7 +128,25 @@ export const useStore = create<State>((set, get) => ({
 
   update: null,
   setUpdate: (update) => set({ update }),
+
+  jobList: [],
+  setJobList: (jobList) => set({ jobList }),
+  speed: 0,
+  setSpeed: (speed) => set({ speed }),
+
+  preflight: null,
+  setPreflight: (preflight) => set({ preflight }),
+
+  dropping: false,
+  setDropping: (dropping) => set({ dropping }),
+
+  iconDrop: null,
+  setIconDrop: (iconDrop) => set({ iconDrop }),
 }));
 
-export const toastError = (e: unknown) =>
-  useStore.getState().toast({ kind: "error", text: typeof e === "string" ? e : e instanceof Error ? e.message : String(e) });
+export const toastError = (e: unknown) => {
+  const text = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+  // Cancelling is the user's own choice; the downloads panel already shows it.
+  if (text === "Cancelled") return;
+  useStore.getState().toast({ kind: "error", text });
+};

@@ -105,23 +105,16 @@ pub async fn ensure(launcher: &Launcher) -> Result<PathBuf> {
 pub async fn fetch_into(http: &reqwest::Client, launcher: &Launcher, dest: &Path) -> Result<()> {
     let manifest = mojang::manifest(launcher).await?;
     let version = mojang::version_json(launcher, &manifest.latest.release).await?;
-    let client = version
-        .downloads
-        .and_then(|d| d.client)
-        .ok_or_else(|| Error::NotFound("client jar".into()))?;
-    let total = client
-        .size
-        .ok_or_else(|| Error::other("client jar has no size"))?;
+    let client = version.downloads.and_then(|d| d.client).ok_or_else(|| Error::NotFound("client jar".into()))?;
+    let total = client.size.ok_or_else(|| Error::other("client jar has no size"))?;
 
     let entries = read_central_directory(http, &client.url, total).await?;
     tokio::fs::create_dir_all(dest).await?;
 
     // Owned values only: borrowed data inside a buffered stream makes the future
     // impossible to spawn on a runtime (higher-ranked lifetime error).
-    let wanted: Vec<(String, ZipEntry)> = WANTED
-        .iter()
-        .filter_map(|n| entries.get(&format!("{PREFIX}{n}.png")).map(|e| (n.to_string(), e.clone())))
-        .collect();
+    let wanted: Vec<(String, ZipEntry)> =
+        WANTED.iter().filter_map(|n| entries.get(&format!("{PREFIX}{n}.png")).map(|e| (n.to_string(), e.clone()))).collect();
 
     let fetched: Vec<(String, Vec<u8>)> = futures::stream::iter(wanted.into_iter().map(|(name, entry)| {
         let http = http.clone();
@@ -140,10 +133,7 @@ pub async fn fetch_into(http: &reqwest::Client, launcher: &Launcher, dest: &Path
         tokio::fs::write(dest.join(format!("{name}.png")), bytes).await?;
         files.push(name);
     }
-    let marker = Marker {
-        game_version: manifest.latest.release,
-        files,
-    };
+    let marker = Marker { game_version: manifest.latest.release, files };
     tokio::fs::write(dest.join(MARKER), serde_json::to_vec_pretty(&marker)?).await?;
     Ok(())
 }
@@ -157,12 +147,7 @@ struct ZipEntry {
 }
 
 async fn range(http: &reqwest::Client, url: &str, start: u64, end_inclusive: u64) -> Result<Vec<u8>> {
-    let resp = http
-        .get(url)
-        .header("Range", format!("bytes={start}-{end_inclusive}"))
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = http.get(url).header("Range", format!("bytes={start}-{end_inclusive}")).send().await?.error_for_status()?;
     if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
         return Err(Error::other("server ignored the range request"));
     }
@@ -180,10 +165,7 @@ fn u32_at(b: &[u8], i: usize) -> u32 {
 async fn read_central_directory(http: &reqwest::Client, url: &str, total: u64) -> Result<HashMap<String, ZipEntry>> {
     let tail_len = total.min(65_557);
     let tail = range(http, url, total - tail_len, total - 1).await?;
-    let eocd = tail
-        .windows(4)
-        .rposition(|w| w == b"PK\x05\x06")
-        .ok_or_else(|| Error::other("no zip end record"))?;
+    let eocd = tail.windows(4).rposition(|w| w == b"PK\x05\x06").ok_or_else(|| Error::other("no zip end record"))?;
     let cd_size = u32_at(&tail, eocd + 12) as u64;
     let cd_offset = u32_at(&tail, eocd + 16) as u64;
     if cd_offset == 0xFFFF_FFFF || cd_size == 0xFFFF_FFFF {
@@ -203,15 +185,7 @@ async fn read_central_directory(http: &reqwest::Client, url: &str, total: u64) -
         let local_offset = u32_at(&cd, i + 42) as u64;
         let name = String::from_utf8_lossy(&cd[i + 46..i + 46 + name_len]).into_owned();
         if name.starts_with(PREFIX) {
-            out.insert(
-                name,
-                ZipEntry {
-                    method,
-                    compressed,
-                    uncompressed,
-                    local_offset,
-                },
-            );
+            out.insert(name, ZipEntry { method, compressed, uncompressed, local_offset });
         }
         i += 46 + name_len + extra_len + comment_len;
     }
@@ -226,9 +200,7 @@ async fn fetch_entry(http: &reqwest::Client, url: &str, e: &ZipEntry) -> Result<
         return Err(Error::other("bad local zip header"));
     }
     let start = 30 + u16_at(&blob, 26) as usize + u16_at(&blob, 28) as usize;
-    let data = blob
-        .get(start..start + e.compressed as usize)
-        .ok_or_else(|| Error::other("short zip entry"))?;
+    let data = blob.get(start..start + e.compressed as usize).ok_or_else(|| Error::other("short zip entry"))?;
     match e.method {
         0 => Ok(data.to_vec()),
         8 => {

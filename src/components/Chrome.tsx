@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Compass, Download, Home, LayoutGrid, LogIn, Minus, Plus, Settings, Square, Trash2, UserRound, X } from "lucide-react";
+import { Compass, Home, LayoutGrid, LogIn, Minus, Plus, Settings, Square, Trash2, UserRound, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri } from "../lib/api";
 import { useAccounts } from "../lib/queries";
 import { toastError, useStore, type Page } from "../lib/store";
 import { PlayerHead } from "./Art";
 import { Logo } from "./Logo";
+import { DownloadsButton } from "./Downloads";
 import { UpdateButton } from "./Updates";
 
 export function TitleBar({ title }: { title: string }) {
@@ -58,11 +59,9 @@ export function Rail() {
   const page = useStore((s) => s.page);
   const go = useStore((s) => s.go);
   const setCreateOpen = useStore((s) => s.setCreateOpen);
-  const jobs = useStore((s) => s.progress);
-  const active = Object.values(jobs).filter(Boolean).length;
 
   const item = (name: Page["name"], label: string, Icon: typeof Home, onClick?: () => void, badge?: number) => {
-    const on = !onClick && (page.name === name || (name === "library" && page.name === "instance"));
+    const on = !onClick && (page.name === name || (name === "library" && page.name === "instance") || (name === "discover" && page.name === "project"));
     return (
       <button
         key={label}
@@ -112,7 +111,7 @@ export function Rail() {
       </div>
       <div className="no-drag mt-auto flex flex-col items-center gap-1">
         <UpdateButton />
-        {active > 0 && item("library", `${active} download${active > 1 ? "s" : ""} running`, Download, () => go({ name: "library" }), active)}
+        <DownloadsButton />
         {item("settings", "Settings", Settings)}
         <AccountMenu />
       </div>

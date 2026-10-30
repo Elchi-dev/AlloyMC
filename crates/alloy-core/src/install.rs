@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::download::{download_all, DownloadTask};
 use crate::instance::{InstallState, Instance};
+use crate::meta::forge;
 use crate::meta::loaders::{self, Loader};
 use crate::meta::rules::Features;
 use crate::meta::{mojang, VersionJson};
@@ -18,8 +19,12 @@ use crate::{java, Error, Launcher, Result};
 #[derive(Debug, Clone)]
 pub struct ResolvedVersion {
     pub json: VersionJson,
-    /// The vanilla version id whose client jar goes on the classpath.
+    /// The vanilla version id (its client jar is what everything starts from).
     pub vanilla_id: String,
+    /// The game jar for the classpath. Forge and NeoForge want it named after their profile.
+    pub client_jar: PathBuf,
+    /// Set for Forge and NeoForge, whose installers still have work to do after downloads.
+    pub forge: Option<forge::Target>,
 }
 
 pub async fn resolve(launcher: &Launcher, instance: &Instance) -> Result<ResolvedVersion> {
@@ -27,19 +32,19 @@ pub async fn resolve(launcher: &Launcher, instance: &Instance) -> Result<Resolve
     let json = match instance.loader {
         Loader::Vanilla => vanilla,
         loader => {
-            let lv = instance
-                .loader_version
-                .as_deref()
-                .ok_or_else(|| Error::other("Instance has a loader but no loader version"))?;
-            loaders::profile(launcher, loader, &instance.game_version, lv)
-                .await?
-                .merge_onto(vanilla)
+            let lv = instance.loader_version.as_deref().ok_or_else(|| Error::other("Instance has a loader but no loader version"))?;
+            loaders::profile(launcher, loader, &instance.game_version, lv).await?.merge_onto(vanilla)
         }
     };
-    Ok(ResolvedVersion {
-        json,
-        vanilla_id: instance.game_version.clone(),
-    })
+    let forge = match (instance.loader, &instance.loader_version) {
+        (Loader::Forge | Loader::NeoForge, Some(v)) => Some(forge::Target::new(instance.loader, &instance.game_version, v)?),
+        _ => None,
+    };
+    let client_jar = match forge {
+        Some(_) => launcher.dirs.client_jar(&json.id),
+        None => launcher.dirs.client_jar(&instance.game_version),
+    };
+    Ok(ResolvedVersion { json, vanilla_id: instance.game_version.clone(), client_jar, forge })
 }
 
 #[derive(Deserialize)]
@@ -66,11 +71,7 @@ pub async fn install(launcher: &Launcher, instance: &mut Instance, progress: &Pr
     instance.save(launcher).await?;
 
     let result = install_inner(launcher, instance, progress, !repair).await;
-    instance.install_state = if result.is_ok() {
-        InstallState::Installed
-    } else {
-        InstallState::Failed
-    };
+    instance.install_state = if result.is_ok() { InstallState::Installed } else { InstallState::Failed };
     instance.save(launcher).await?;
     result
 }
@@ -81,9 +82,10 @@ async fn install_inner(launcher: &Launcher, instance: &Instance, progress: &Prog
     let json = &resolved.json;
     let concurrency = launcher.settings.read().await.max_concurrent_downloads;
 
-    if instance.java_path.is_none() {
-        java::ensure(launcher, &json.java_component(), json.java_major(), progress).await?;
-    }
+    let java = match &instance.java_path {
+        Some(p) => p.clone(),
+        None => java::ensure(launcher, &json.java_component(), json.java_major(), progress).await?,
+    };
 
     // Client jar, libraries, logging config
     let mut tasks = vec![];
@@ -97,12 +99,17 @@ async fn install_inner(launcher: &Launcher, instance: &Instance, progress: &Prog
     }
     tasks.extend(library_tasks(launcher, json).into_iter().map(|t| t.quick(quick)));
     if let Some(log) = json.logging.as_ref().and_then(|l| l.client.as_ref()) {
-        tasks.push(
-            DownloadTask::new(&log.file.url, log_config_path(launcher, &log.file.id))
-                .sha1(Some(log.file.sha1.clone())),
-        );
+        tasks.push(DownloadTask::new(&log.file.url, log_config_path(launcher, &log.file.id)).sha1(Some(log.file.sha1.clone())));
+    }
+    if let Some(target) = &resolved.forge {
+        emit(progress, Stage::Loader, 0, 1, Unit::Steps, Some("Reading the loader installer".into()));
+        tasks.extend(forge::prepare_files(launcher, target).await?.into_iter().map(|t| t.quick(quick)));
     }
     download_all(&launcher.http, tasks, concurrency, Stage::Libraries, progress).await?;
+    if let Some(target) = &resolved.forge {
+        forge::run_processors(launcher, target, &java, progress, quick).await?;
+        forge::ensure_version_jar(launcher, &json.id, &resolved.vanilla_id).await?;
+    }
 
     // Assets
     if let Some(index_ref) = &json.asset_index {
@@ -122,13 +129,10 @@ async fn install_inner(launcher: &Launcher, instance: &Instance, progress: &Prog
             .values()
             .map(|o| {
                 let prefix = &o.hash[..2];
-                DownloadTask::new(
-                    format!("{RESOURCES_URL}/{prefix}/{}", o.hash),
-                    objects.join(prefix).join(&o.hash),
-                )
-                .sha1(Some(o.hash.clone()))
-                .size(Some(o.size))
-                .quick(quick)
+                DownloadTask::new(format!("{RESOURCES_URL}/{prefix}/{}", o.hash), objects.join(prefix).join(&o.hash))
+                    .sha1(Some(o.hash.clone()))
+                    .size(Some(o.size))
+                    .quick(quick)
             })
             .collect();
         download_all(&launcher.http, tasks, concurrency, Stage::Assets, progress).await?;
@@ -162,10 +166,6 @@ fn library_tasks(launcher: &Launcher, json: &VersionJson) -> Vec<DownloadTask> {
         .iter()
         .flat_map(|l| l.files(&features))
         .filter(|f| !f.url.is_empty())
-        .map(|f| {
-            DownloadTask::new(&f.url, launcher.dirs.libraries().join(&f.path))
-                .sha1(f.sha1)
-                .size(f.size)
-        })
+        .map(|f| DownloadTask::new(&f.url, launcher.dirs.libraries().join(&f.path)).sha1(f.sha1).size(f.size))
         .collect()
 }

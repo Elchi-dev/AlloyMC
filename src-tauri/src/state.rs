@@ -21,11 +21,6 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(launcher: Launcher, accounts: Accounts) -> Self {
-        Self {
-            launcher,
-            accounts,
-            running: Mutex::new(HashMap::new()),
-            installing: Mutex::new(Default::default()),
-        }
+        Self { launcher, accounts, running: Mutex::new(HashMap::new()), installing: Mutex::new(Default::default()) }
     }
 }

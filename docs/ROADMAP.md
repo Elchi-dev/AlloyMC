@@ -4,9 +4,6 @@ Each phase ends when its gate works on a real machine (Windows and Arch).
 
 ## Open right now
 
-- Publish v0.1.0 on AlloyMC (Promote from the signed Release run).
-- First signed update: v0.2.0 goes out as a `.alloyupdate` and must install with one click on
-  Windows and as an AppImage.
 - Google sign-in for Alloy accounts waits for a domain and a privacy notice.
 - Releases move to the server once it runs: CI publishes to it with `SERVER_SECRET` (HMAC,
   the secret never travels), and Alloy checks the server for updates. Update files stay
@@ -16,7 +13,7 @@ Each phase ends when its gate works on a real machine (Windows and Arch).
 | --- | --- | --- |
 | **0. Foundation** (done) | Core crate, Microsoft + offline sign-in, vanilla/Fabric/Quilt install and launch, Java runtimes, Modrinth install, modpack import, UI shell | Vanilla 26.2 and Fabric + Sodium reach the title screen |
 | **1. Alloy foundation** (done) | Rename, repo, CI for Windows and Arch, install-time textures, traced logo and forge, Ori, motion system, speed pass | This release |
-| **2. Daily driver** | Forge and NeoForge (installer processors), content updates (hash-based), download manager panel, CurseForge in Discover with dependencies, project pages, pre-launch compatibility check | A big Forge/NeoForge pack runs unchanged |
+| **2. Daily driver** (done, 0.2.0) | Forge and NeoForge (installer processors), content updates (hash-based), download manager panel, CurseForge in Discover with dependencies, project pages, pre-launch compatibility check | A big Forge/NeoForge pack runs unchanged |
 | **3. Alloy server v1** | `alloy-server` behind Caddy: Alloy accounts (email + Google), CurseForge proxy, settings and instance sync between PCs, social feed | Your Arch and Windows machines share a library |
 | **4. Only in Alloy** | Crash doctor + auto-bisect, instance save points, world time machine, party packs, memory autopilot, warm standby (experimental), dependency resolver UI | A crashing pack finds its culprit by itself |
 | **5. Assistant and more** | Claude assistant through the server with per-user limits, skins with 3D preview, worlds tab, screenshots, command palette, mclo.gs upload, options.txt sync, Discord presence, tray, self-update, importers from other launchers, export | |

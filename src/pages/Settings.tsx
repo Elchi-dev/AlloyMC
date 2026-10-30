@@ -1,3 +1,4 @@
+import { MemorySlider } from "../components/MemorySlider";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -60,8 +61,8 @@ export function SettingsPage() {
       </Section>
 
       <Section title="Playing" index={1}>
-        <Row label="Default memory" hint={`${(draft.defaultMemoryMb / 1024).toFixed(1)} GB for instances that don't set their own.`}>
-          <input type="range" min={1024} max={16384} step={512} value={draft.defaultMemoryMb} onChange={(e) => set("defaultMemoryMb", Number(e.target.value))} className="w-full accent-[var(--color-gold)]" />
+        <Row label="Default memory" hint="For instances that don't set their own.">
+          <MemorySlider value={draft.defaultMemoryMb} onChange={(mb) => set("defaultMemoryMb", mb)} />
         </Row>
         <Row label="When a game starts">
           <Segmented

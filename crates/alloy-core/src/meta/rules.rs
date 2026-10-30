@@ -121,15 +121,7 @@ mod tests {
     use super::*;
 
     fn rule(action: RuleAction, os: Option<&str>) -> Rule {
-        Rule {
-            action,
-            os: os.map(|n| OsRule {
-                name: Some(n.into()),
-                arch: None,
-                version: None,
-            }),
-            features: None,
-        }
+        Rule { action, os: os.map(|n| OsRule { name: Some(n.into()), arch: None, version: None }), features: None }
     }
 
     #[test]
@@ -145,16 +137,9 @@ mod tests {
     fn features() {
         let mut f = HashMap::new();
         f.insert("has_custom_resolution".to_string(), true);
-        let rules = vec![Rule {
-            action: RuleAction::Allow,
-            os: None,
-            features: Some(f),
-        }];
+        let rules = vec![Rule { action: RuleAction::Allow, os: None, features: Some(f) }];
         assert!(!rules_allow(Some(&rules), &Features::default()));
-        let on = Features {
-            has_custom_resolution: true,
-            ..Default::default()
-        };
+        let on = Features { has_custom_resolution: true, ..Default::default() };
         assert!(rules_allow(Some(&rules), &on));
     }
 }

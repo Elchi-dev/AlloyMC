@@ -16,8 +16,24 @@ Every loader, every pack, Modrinth and CurseForge in one library.</p>
 <p align="center"><img src="docs/images/home.webp" width="860" alt="Alloy's Home screen: the forge scene behind the last played instance and a gold Play block"></p>
 
 Most launchers are either fast and plain or pretty and slow. Alloy is a Rust core with a
-UI that moves, and it is honest about where it is: **alpha**. Vanilla, Fabric and Quilt
-install and launch; Forge and NeoForge are next. CurseForge is a work in progress.
+UI that moves, and it is honest about where it is: **alpha**. Every loader installs and
+launches: vanilla, Fabric, Quilt, Forge and NeoForge. CurseForge is a work in progress in
+public builds.
+
+## The trick
+
+Alloy reads what every mod jar says about itself before it trusts any platform. That one
+idea is why it can tell you, a millisecond after you press Play, that a pack would crash
+and how to fix it:
+
+```
+mods/*.jar ──► fabric.mod.json · mods.toml · neoforge.mods.toml · bundled jars
+                         │
+              Modrinth / CurseForge dependency lists fill the gaps
+                         │
+          dependency graph ──► check before launch ──► one-click fixes
+                         └──► Update all that never breaks a dependent
+```
 
 ## Meet Ori
 
@@ -32,10 +48,10 @@ gold. See [docs/ORI.md](docs/ORI.md).
 
 | | |
 | --- | --- |
-| <img src="docs/images/forge-hover.webp" alt="The Play button glowing molten after a long hover"> | <img src="docs/images/instance.webp" alt="An instance page with its mods"> |
-| **Rest on Play** and the gold heats up into molten metal, sparks and all. | **Instances** with content, logs and settings; icons are real ore textures. |
-| <img src="docs/images/discover.webp" alt="Discover with Modrinth modpacks"> | |
-| **Discover** Modrinth, filtered to the instance you're adding to. CurseForge is a work in progress. | |
+| <img src="docs/images/forge-hover.webp" alt="The Play button glowing molten after a long hover"> | <img src="docs/images/content.webp" alt="An instance's mods with two missing-dependency problems, each with a one-click fix, and a pending Sodium update"> |
+| **Rest on Play** and the gold heats up into molten metal, sparks and all. | **Content** knows what every jar needs. Problems come with a fix button, and updates are checked as a set before anything moves. |
+| <img src="docs/images/discover.webp" alt="Discover with Modrinth modpacks"> | <img src="docs/images/project.webp" alt="Sodium's project page with its description, gallery, versions and an install button for the current instance"> |
+| **Discover** Modrinth and CurseForge, filtered to the instance you're adding to. | **Project pages** with the description, gallery, every version and its dependencies. |
 
 ## Fast, measured
 
@@ -82,17 +98,20 @@ Set `ALLOY_DATA_DIR` to keep test data away from your real library.
 | Area | Today |
 | --- | --- |
 | Accounts | Microsoft sign-in in a small window (official launcher client ID, no Azure setup); offline accounts; tokens in the OS keychain |
-| Instances | Vanilla incl. 26.x, Fabric, Quilt; create, duplicate, repair, trash; per-instance memory, Java, args, window size |
-| Content | Modrinth search and install with required dependencies; enable, disable, remove. CurseForge: work in progress (bring your own key in Settings to try it) |
-| Modpacks | `.mrpack` from a file or a URL; CurseForge `.zip` with your own key |
+| Loaders | Vanilla incl. 26.x, Fabric, Quilt, Forge and NeoForge from their official installers (Forge back to 1.6); patched jars shared between instances |
+| Instances | Create, duplicate, rename, groups, repair, trash, right-click menu; icons from any image or a block; memory up to what your PC can spare |
+| Check before launch | Missing or wrong-version dependencies, wrong loader, game or Java, duplicates, incompatibilities, with one-click fixes ([docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)) |
+| Content | Install with every dependency, update all safely, enable, disable, remove; files you added by hand are identified on Modrinth and CurseForge; `alloy.lock` per instance |
+| Discover | Modrinth and CurseForge search, project pages with gallery, versions and dependencies, "Install into…"; paste a link; drop files on the window |
+| Modpacks | `.mrpack` and CurseForge `.zip` from a file, URL or Discover; files a pack lists but couldn't ship are fetched; CurseForge-only files picked up from Downloads |
+| Downloads | One panel for every job: progress, speed, cancel, retry |
 | Updates | Signed `.alloyupdate` files, verified and applied with one click, settings backed up first |
 | Game | Mojang's Java runtimes, installed per version; live log with levels and search; stop; play time |
 | Feel | Forge background, gold Play block with a molten hover, staggered entrances, sliding tabs, motion settings (Full, Calm, Off) |
 
 ## Planned
 
-Forge and NeoForge, content updates, a download manager, the dependency resolver
-([docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)), warm standby for instant starts
+Warm standby for instant starts
 ([docs/STANDBY.md](docs/STANDBY.md)), Alloy accounts and social
 ([docs/SERVER.md](docs/SERVER.md)), and the Claude assistant. The full list is in
 [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -105,9 +124,12 @@ Forge and NeoForge, content updates, a download manager, the dependency resolver
 
 ## Status
 
-Alpha. Tested end to end in a Linux sandbox: vanilla 26.2 and Fabric 1.21.1 with Sodium
-reach the title screen when you press Play. Microsoft sign-in is built but has only been
-checked against the protocol, not a real account. Windows builds come from CI.
+Alpha. Tested end to end in a Linux sandbox: vanilla 26.2, Fabric 1.21.1 with Sodium,
+Forge 1.20.1, NeoForge 1.21.1, Forge 1.12.2 and Forge 1.7.10 load into the game; the Better
+MC pack (363 mods) passes the check after Alloy fetches the files it lists, and Forge loads
+every mod and gets to resource loading (the sandbox has too little memory to go further).
+Microsoft sign-in is built but has only been checked against the protocol, not a real
+account. Windows builds come from CI.
 
 ## Docs
 

@@ -11,19 +11,19 @@ use std::time::{Duration, Instant};
 
 use alloy_core::auth::microsoft::MsClient;
 use alloy_core::auth::Account;
-use alloy_core::content::{self, curseforge, modrinth, InstalledContent, SearchPage, SearchQuery};
-use alloy_core::instance::{self, InstallState, Instance, LinkedPack, NewInstance, PackSource};
+use alloy_core::content::curseforge;
+use alloy_core::instance::{self, InstallState, Instance, NewInstance};
 use alloy_core::java::{self, JavaInstall};
 use alloy_core::launch::{self, LaunchOptions, QuickPlay};
 use alloy_core::meta::loaders::{self, Loader, LoaderVersion};
 use alloy_core::meta::{mojang, GameVersion};
-use alloy_core::modpack::{self, ImportResult};
 use alloy_core::progress::{Progress, ProgressFn, Stage};
 use alloy_core::settings::{OnLaunch, Settings};
 use alloy_core::{install, Error, Result};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::jobs::{self, Jobs, Retry};
 use crate::state::{AppState, RunningGame};
 
 // ---------- helpers ----------
@@ -36,8 +36,9 @@ struct JobProgress {
     progress: Progress,
 }
 
-/// Emits progress events, at most every 60 ms within a stage (asset installs report thousands of files).
-fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Option<&str>) -> ProgressFn {
+/// Emits progress events, at most every 60 ms within a stage (asset installs report thousands of files),
+/// and keeps the job's last progress for the downloads panel.
+pub(crate) fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Option<&str>) -> ProgressFn {
     let app = app.clone();
     let job_id = job_id.to_string();
     let instance_id = instance_id.map(str::to_string);
@@ -52,35 +53,65 @@ fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Option<&str>) ->
             }
             *l = (Instant::now(), Some(p.stage));
         }
-        let _ = app.emit(
-            "job-progress",
-            JobProgress {
-                job_id: job_id.clone(),
-                instance_id: instance_id.clone(),
-                progress: p,
-            },
-        );
+        app.state::<Jobs>().set_progress(&job_id, &p);
+        let _ = app.emit("job-progress", JobProgress { job_id: job_id.clone(), instance_id: instance_id.clone(), progress: p });
     })
 }
 
-fn changed(app: &AppHandle, what: &str) {
+pub(crate) fn changed(app: &AppHandle, what: &str) {
     let _ = app.emit(what, ());
 }
 
-async fn run_install(app: &AppHandle, state: &AppState, id: &str, job_id: &str, repair: bool) -> Result<Instance> {
+/// Installs (or repairs) an instance without registering a job; for callers that already are one.
+pub(crate) async fn do_install(app: &AppHandle, id: &str, job_id: &str, repair: bool) -> Result<Instance> {
+    let state = app.state::<AppState>();
     if !state.installing.lock().unwrap().insert(id.to_string()) {
         return Err(Error::other("This instance is already installing"));
     }
-    let result = async {
-        let mut inst = instance::get(&state.launcher, id).await?;
-        changed(app, "instances-changed");
-        let progress = progress_emitter(app, job_id, Some(id));
-        install::install(&state.launcher, &mut inst, &progress, repair).await?;
-        Ok(inst)
+    struct Done<'a>(&'a AppState, String);
+    impl Drop for Done<'_> {
+        // Runs on success, failure and cancellation alike.
+        fn drop(&mut self) {
+            self.0.installing.lock().unwrap().remove(&self.1);
+        }
     }
-    .await;
-    state.installing.lock().unwrap().remove(id);
+    let _done = Done(&state, id.to_string());
+    let mut inst = instance::get(&state.launcher, id).await?;
     changed(app, "instances-changed");
+    let progress = progress_emitter(app, job_id, Some(id));
+    let result = install::install(&state.launcher, &mut inst, &progress, repair).await;
+    changed(app, "instances-changed");
+    if result.is_ok() {
+        // Read every jar now, in the background, so the Content tab opens instantly.
+        let (launcher, scan_inst) = (state.launcher.clone(), inst.clone());
+        tauri::async_runtime::spawn(async move {
+            let _ = alloy_core::content::scan::scan(&launcher, &scan_inst).await;
+        });
+    }
+    result.map(|_| inst)
+}
+
+/// Installs an instance as a job (visible in the downloads panel, cancellable, retryable).
+pub(crate) async fn run_install(app: &AppHandle, id: &str, job_id: &str, repair: bool) -> Result<Instance> {
+    let state = app.state::<AppState>();
+    let name = instance::get(&state.launcher, id).await.map(|i| i.name).unwrap_or_else(|_| id.to_string());
+    let title = if repair { format!("Repairing {name}") } else { format!("Installing {name}") };
+    let (app2, id2, job2) = (app.clone(), id.to_string(), job_id.to_string());
+    let result = jobs::run(app, job_id, title, Some(id.into()), Some(Retry::Install { instance_id: id.into(), repair }), async move {
+        do_install(&app2, &id2, &job2, repair).await
+    })
+    .await;
+    if result.is_err() {
+        // A cancelled install leaves the instance marked "installing"; set it straight.
+        if let Ok(mut inst) = instance::get(&state.launcher, id).await {
+            if inst.install_state == InstallState::Installing {
+                inst.install_state = InstallState::NotInstalled;
+                let _ = inst.save(&state.launcher).await;
+            }
+        }
+        state.installing.lock().unwrap().remove(id);
+        changed(app, "instances-changed");
+    }
     result
 }
 
@@ -131,11 +162,7 @@ async fn launcher_textures(state: &AppState) -> Result<std::collections::HashMap
 #[tauri::command]
 pub async fn list_game_versions(state: State<'_, AppState>, include_snapshots: bool) -> Result<Vec<GameVersion>> {
     let manifest = mojang::manifest(&state.launcher).await?;
-    Ok(manifest
-        .versions
-        .into_iter()
-        .filter(|v| include_snapshots || v.kind == "release")
-        .collect())
+    Ok(manifest.versions.into_iter().filter(|v| include_snapshots || v.kind == "release").collect())
 }
 
 #[tauri::command]
@@ -168,8 +195,7 @@ pub async fn create_instance(app: AppHandle, state: State<'_, AppState>, new: Ne
     let id = inst.id.clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        let state = app2.state::<AppState>();
-        if let Err(e) = run_install(&app2, &state, &id, &format!("install:{id}"), false).await {
+        if let Err(e) = run_install(&app2, &id, &format!("install:{id}"), false).await {
             tracing::error!("install of {id} failed: {e}");
         }
     });
@@ -209,8 +235,8 @@ pub async fn duplicate_instance(app: AppHandle, state: State<'_, AppState>, id: 
 /// Installs an instance, or with `repair` re-checks every file by hash.
 /// Progress arrives as `job-progress` with this job id.
 #[tauri::command]
-pub async fn install_instance(app: AppHandle, state: State<'_, AppState>, id: String, job_id: String, repair: Option<bool>) -> Result<()> {
-    run_install(&app, &state, &id, &job_id, repair.unwrap_or(false)).await.map(|_| ())
+pub async fn install_instance(app: AppHandle, id: String, job_id: String, repair: Option<bool>) -> Result<()> {
+    run_install(&app, &id, &job_id, repair.unwrap_or(false)).await.map(|_| ())
 }
 
 #[tauri::command]
@@ -221,9 +247,7 @@ pub async fn open_instance_folder(app: AppHandle, state: State<'_, AppState>, id
         dir = alloy_core::util::safe_join(&dir, &sub)?;
         tokio::fs::create_dir_all(&dir).await?;
     }
-    app.opener()
-        .open_path(dir.to_string_lossy(), None::<&str>)
-        .map_err(|e| Error::other(e.to_string()))
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| Error::other(e.to_string()))
 }
 
 // ---------- launching ----------
@@ -245,24 +269,11 @@ struct GameState {
 }
 
 fn game_state(app: &AppHandle, id: &str, state: &'static str, exit_code: Option<i32>, error: Option<String>) {
-    let _ = app.emit(
-        "game-state",
-        GameState {
-            instance_id: id.into(),
-            state,
-            exit_code,
-            error,
-        },
-    );
+    let _ = app.emit("game-state", GameState { instance_id: id.into(), state, exit_code, error });
 }
 
 #[tauri::command]
-pub async fn launch_instance(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    quick_play: Option<QuickPlayArg>,
-) -> Result<()> {
+pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: String, quick_play: Option<QuickPlayArg>) -> Result<()> {
     if state.running.lock().unwrap().contains_key(&id) {
         return Err(Error::other("Already running"));
     }
@@ -281,19 +292,14 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
     // Account first: a failed sign-in shouldn't cost a 300 MB download.
     let account_id = match inst.account.clone() {
         Some(a) => a,
-        None => state
-            .accounts
-            .list()
-            .await?
-            .1
-            .ok_or_else(|| Error::other("Add an account before playing"))?,
+        None => state.accounts.list().await?.1.ok_or_else(|| Error::other("Add an account before playing"))?,
     };
     let session = state.accounts.session(&account_id).await?;
 
     let resolved = if inst.install_state == InstallState::Installed {
         install::resolve(launcher, &inst).await?
     } else {
-        run_install(app, state, id, &format!("launch:{id}"), false).await?;
+        run_install(app, id, &format!("launch:{id}"), false).await?;
         inst = instance::get(launcher, id).await?;
         install::resolve(launcher, &inst).await?
     };
@@ -311,10 +317,7 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
     let mut child = launch::spawn(
         &cmd,
         Arc::new(move |line| {
-            let _ = log_app.emit(
-                "game-log",
-                serde_json::json!({ "instanceId": log_id, "stream": line.stream, "line": line.line }),
-            );
+            let _ = log_app.emit("game-log", serde_json::json!({ "instanceId": log_id, "stream": line.stream, "line": line.line }));
         }),
     )?;
 
@@ -324,13 +327,7 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
     changed(app, "instances-changed");
 
     let (kill_tx, kill_rx) = tokio::sync::oneshot::channel::<()>();
-    state.running.lock().unwrap().insert(
-        id.to_string(),
-        RunningGame {
-            started_at: started,
-            kill: Some(kill_tx),
-        },
-    );
+    state.running.lock().unwrap().insert(id.to_string(), RunningGame { started_at: started, kill: Some(kill_tx) });
     game_state(app, id, "running", None, None);
 
     let on_launch = launcher.settings.read().await.on_launch;
@@ -354,13 +351,7 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
             _ = kill_rx => { let _ = child.kill().await; child.wait().await.ok() }
         };
         let state = app2.state::<AppState>();
-        let started = state
-            .running
-            .lock()
-            .unwrap()
-            .remove(&id2)
-            .map(|r| r.started_at)
-            .unwrap_or(started);
+        let started = state.running.lock().unwrap().remove(&id2).map(|r| r.started_at).unwrap_or(started);
         if let Ok(mut inst) = instance::get(&state.launcher, &id2).await {
             inst.play_time_secs += (chrono::Utc::now().timestamp() - started).max(0) as u64;
             let _ = inst.save(&state.launcher).await;
@@ -456,140 +447,5 @@ pub async fn remove_account(app: AppHandle, state: State<'_, AppState>, id: Stri
 pub async fn set_active_account(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<()> {
     state.accounts.set_active(&id).await?;
     changed(&app, "accounts-changed");
-    Ok(())
-}
-
-// ---------- content ----------
-
-#[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum Platform {
-    Modrinth,
-    CurseForge,
-}
-
-#[tauri::command]
-pub async fn search_content(state: State<'_, AppState>, platform: Platform, query: SearchQuery) -> Result<SearchPage> {
-    match platform {
-        Platform::Modrinth => modrinth::search(&state.launcher, &query).await,
-        Platform::CurseForge => curseforge::search(&state.launcher, &query).await,
-    }
-}
-
-#[tauri::command]
-pub async fn modrinth_project(state: State<'_, AppState>, id: String) -> Result<modrinth::Project> {
-    modrinth::project(&state.launcher, &id).await
-}
-
-/// Versions of a project; with an instance id, only ones that run on that instance.
-#[tauri::command]
-pub async fn modrinth_versions(
-    state: State<'_, AppState>,
-    project_id: String,
-    instance_id: Option<String>,
-) -> Result<Vec<modrinth::Version>> {
-    let launcher = &state.launcher;
-    match instance_id {
-        Some(iid) => {
-            let inst = instance::get(launcher, &iid).await?;
-            let project = modrinth::project(launcher, &project_id).await?;
-            // Loader filters only make sense for mods and modpacks.
-            let loaders = if matches!(project.project_type.as_str(), "mod" | "modpack") {
-                modrinth::compatible_loaders(inst.loader)
-            } else {
-                vec![]
-            };
-            modrinth::project_versions(launcher, &project_id, &loaders, &[inst.game_version.as_str()]).await
-        }
-        None => modrinth::project_versions(launcher, &project_id, &[], &[]).await,
-    }
-}
-
-#[tauri::command]
-pub async fn install_modrinth_version(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    instance_id: String,
-    version_id: String,
-) -> Result<Vec<String>> {
-    let inst = instance::get(&state.launcher, &instance_id).await?;
-    let installed = modrinth::install_version(&state.launcher, &inst, &version_id).await?;
-    changed(&app, "content-changed");
-    Ok(installed)
-}
-
-/// Installs a Modrinth modpack version as a new instance.
-#[tauri::command]
-pub async fn install_modrinth_modpack(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    version_id: String,
-    job_id: String,
-) -> Result<ImportResult> {
-    let launcher = &state.launcher;
-    let version = modrinth::version(launcher, &version_id).await?;
-    let project = modrinth::project(launcher, &version.project_id).await?;
-    let file = version
-        .primary_file()
-        .ok_or_else(|| Error::NotFound("modpack file".into()))?;
-    let progress = progress_emitter(&app, &job_id, None);
-    let mut result = modpack::import_url(launcher, &file.url, &progress).await?;
-    result.instance.name = project.title.clone();
-    result.instance.icon = project.icon_url.clone();
-    result.instance.linked_pack = Some(LinkedPack {
-        source: PackSource::Modrinth,
-        project_id: Some(project.id),
-        version_id: Some(version.id),
-        name: Some(project.title),
-        version_name: Some(version.version_number),
-    });
-    result.instance.save(launcher).await?;
-    changed(&app, "instances-changed");
-    let id = result.instance.id.clone();
-    run_install(&app, &state, &id, &job_id, false).await?;
-    Ok(result)
-}
-
-/// Imports a .mrpack / CurseForge zip from a local path or an https URL, then installs it.
-#[tauri::command]
-pub async fn import_modpack(app: AppHandle, state: State<'_, AppState>, source: String, job_id: String) -> Result<ImportResult> {
-    let launcher = &state.launcher;
-    let progress = progress_emitter(&app, &job_id, None);
-    let result = if source.starts_with("http://") || source.starts_with("https://") {
-        modpack::import_url(launcher, &source, &progress).await?
-    } else {
-        modpack::import_file(launcher, std::path::Path::new(&source), &progress).await?
-    };
-    changed(&app, "instances-changed");
-    let id = result.instance.id.clone();
-    run_install(&app, &state, &id, &job_id, false).await?;
-    Ok(result)
-}
-
-#[tauri::command]
-pub async fn list_content(state: State<'_, AppState>, instance_id: String) -> Result<Vec<InstalledContent>> {
-    let inst = instance::get(&state.launcher, &instance_id).await?;
-    content::list_installed(&state.launcher, &inst).await
-}
-
-#[tauri::command]
-pub async fn set_content_enabled(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    instance_id: String,
-    path: String,
-    enabled: bool,
-) -> Result<()> {
-    let inst = instance::get(&state.launcher, &instance_id).await?;
-    content::set_enabled(&state.launcher, &inst, &path, enabled).await?;
-    changed(&app, "content-changed");
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn remove_content(app: AppHandle, state: State<'_, AppState>, instance_id: String, path: String) -> Result<()> {
-    let inst = instance::get(&state.launcher, &instance_id).await?;
-    content::remove(&state.launcher, &inst, &path).await?;
-    changed(&app, "content-changed");
     Ok(())
 }

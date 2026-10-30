@@ -1,7 +1,16 @@
 //! Mods, resource packs and shaders: searching both platforms and managing what's installed.
 
+pub mod blocked;
+pub mod check;
 pub mod curseforge;
+pub mod identify;
+pub mod jarmeta;
+pub mod links;
+pub mod listed;
+pub mod manage;
 pub mod modrinth;
+pub mod scan;
+pub mod version_range;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -111,6 +120,30 @@ pub struct ContentMeta {
     pub version_name: Option<String>,
     pub icon_url: Option<String>,
     pub sha1: Option<String>,
+    /// Installed only because another mod needed it; offered for cleanup once nothing does.
+    #[serde(default)]
+    pub auto: bool,
+    /// Project ids the platform says this file needs (on the same platform). Jars often
+    /// don't declare these themselves.
+    /// None until Alloy has asked the platform.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<Vec<String>>,
+}
+
+impl ContentMeta {
+    pub fn local() -> Self {
+        ContentMeta {
+            source: Source::Local,
+            project_id: None,
+            version_id: None,
+            title: None,
+            version_name: None,
+            icon_url: None,
+            sha1: None,
+            auto: false,
+            requires: None,
+        }
+    }
 }
 
 /// An installed file as the Content tab shows it.
@@ -131,11 +164,7 @@ fn index_path(launcher: &Launcher, instance: &Instance) -> std::path::PathBuf {
 }
 
 pub async fn load_index(launcher: &Launcher, instance: &Instance) -> ContentIndex {
-    tokio::fs::read(index_path(launcher, instance))
-        .await
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    tokio::fs::read(index_path(launcher, instance)).await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 pub async fn save_index(launcher: &Launcher, instance: &Instance, index: &ContentIndex) -> Result<()> {
@@ -159,7 +188,9 @@ pub async fn list_installed(launcher: &Launcher, instance: &Instance) -> Result<
     let mut out = vec![];
     for kind in [ContentKind::Mod, ContentKind::ResourcePack, ContentKind::Shader] {
         let folder = dir.join(kind.folder());
-        let Ok(mut rd) = tokio::fs::read_dir(&folder).await else { continue };
+        let Ok(mut rd) = tokio::fs::read_dir(&folder).await else {
+            continue;
+        };
         while let Some(e) = rd.next_entry().await? {
             let meta = e.metadata().await?;
             if !meta.is_file() {
@@ -172,24 +203,12 @@ pub async fn list_installed(launcher: &Launcher, instance: &Instance) -> Result<
                 continue;
             }
             let path = format!("{}/{file_name}", kind.folder());
-            out.push(InstalledContent {
-                meta: index.files.get(&path).cloned(),
-                path,
-                file_name,
-                kind,
-                enabled,
-                size: meta.len(),
-            });
+            out.push(InstalledContent { meta: index.files.get(&path).cloned(), path, file_name, kind, enabled, size: meta.len() });
         }
     }
     out.sort_by(|a, b| {
-        let name = |c: &InstalledContent| {
-            c.meta
-                .as_ref()
-                .and_then(|m| m.title.clone())
-                .unwrap_or_else(|| c.file_name.clone())
-                .to_lowercase()
-        };
+        let name =
+            |c: &InstalledContent| c.meta.as_ref().and_then(|m| m.title.clone()).unwrap_or_else(|| c.file_name.clone()).to_lowercase();
         name(a).cmp(&name(b))
     });
     Ok(out)

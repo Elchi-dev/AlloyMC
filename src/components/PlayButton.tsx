@@ -97,8 +97,15 @@ export function PlayButton({ instance, size = "md" }: { instance: Instance; size
   const onClick = async () => {
     if (heat > 0.5) setBurst((b) => b + 1);
     try {
-      if (game === "running") await api.stop(instance.id);
-      else if (!busy) await api.launch(instance.id);
+      if (game === "running") return await api.stop(instance.id);
+      if (busy) return;
+      // The pre-launch check reads cached jar metadata, so this costs milliseconds.
+      const pf = await api.preflight(instance.id).catch(() => null);
+      if (pf && (pf.errors.length || pf.system.length)) {
+        useStore.getState().setPreflight({ instanceId: instance.id, result: pf });
+        return;
+      }
+      await api.launch(instance.id);
     } catch (e) {
       toastError(e);
     }
