@@ -78,3 +78,5 @@ jobs:
           else
             gh release create "$version" artifacts/* -R Elchi-dev/AlloyMC --title "Alloy $version" --notes-file notes.md --prerelease
           fi
+      - name: Tell AlloyMC about it
+        run: curl -fsS -X POST https://api.alloymc.dev/v1/launcher/releases/refresh || echo "AlloyMC will notice within 10 minutes"

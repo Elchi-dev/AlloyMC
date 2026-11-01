@@ -6,7 +6,7 @@
 //! tells the UI whether the update landed.
 //!
 //! With "auto update" on (the default), Alloy also asks AlloyMC for the newest release a
-//! little after starting and every few hours, downloads it into `<data>/updates` and offers
+//! little after starting, hourly and when its window comes back to the front, downloads it into `<data>/updates` and offers
 //! it. Installing always waits for a click.
 
 use std::path::{Path, PathBuf};
@@ -74,24 +74,41 @@ pub async fn update_check_now(app: AppHandle) -> Result<Option<FoundUpdate>> {
     Ok(found)
 }
 
-/// Checks a little after start, then every few hours, while auto update is on.
+/// When the last automatic check ran (Unix seconds).
+static LAST_CHECK: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// One automatic check, if auto update is on and the last one is at least `gap` seconds old.
+async fn auto_check(app: &AppHandle, gap: i64) {
+    let now = chrono::Utc::now().timestamp();
+    let last = LAST_CHECK.load(std::sync::atomic::Ordering::Relaxed);
+    if now - last < gap || !app.state::<AppState>().launcher.settings.read().await.auto_update {
+        return;
+    }
+    LAST_CHECK.store(now, std::sync::atomic::Ordering::Relaxed);
+    match fetch_update(app).await {
+        Ok(Some(f)) => {
+            let _ = app.emit("update-ready", &f);
+        }
+        Ok(None) => {}
+        Err(e) => tracing::info!("update check failed: {e}"),
+    }
+}
+
+/// Checks a little after start, then hourly, while auto update is on.
 pub fn start_auto(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         loop {
-            let on = app.state::<AppState>().launcher.settings.read().await.auto_update;
-            if on {
-                match fetch_update(&app).await {
-                    Ok(Some(f)) => {
-                        let _ = app.emit("update-ready", &f);
-                    }
-                    Ok(None) => {}
-                    Err(e) => tracing::info!("update check failed: {e}"),
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+            auto_check(&app, 0).await;
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
+}
+
+/// The window came back to the front: check again if the last check is 15 minutes old.
+#[tauri::command]
+pub async fn update_poke(app: AppHandle) {
+    auto_check(&app, 15 * 60).await;
 }
 
 /// Verifies a specific file (picked in Settings or dropped on the window).

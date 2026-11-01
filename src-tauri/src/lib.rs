@@ -219,6 +219,7 @@ pub fn run() {
             content::clear_jobs,
             content::retry_job,
             updater::update_check_now,
+            updater::update_poke,
             updater::check_updates,
             updater::inspect_update,
             updater::update_outcome,

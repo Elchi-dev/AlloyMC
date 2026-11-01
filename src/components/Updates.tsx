@@ -39,6 +39,9 @@ export function useUpdates() {
     }).catch(() => {});
     check();
     window.addEventListener("focus", check);
+    // Back in front: also ask AlloyMC (the backend skips it if it asked in the last 15 minutes).
+    const poke = () => void api.updatePoke().catch(() => {});
+    window.addEventListener("focus", poke);
     // Downloaded from AlloyMC in the background and verified.
     const offReady = listen("update-ready", (u: FoundUpdate) => {
       const prev = useStore.getState().update;
@@ -68,6 +71,7 @@ export function useUpdates() {
     }
     return () => {
       window.removeEventListener("focus", check);
+      window.removeEventListener("focus", poke);
       offReady();
       unlisten?.();
     };

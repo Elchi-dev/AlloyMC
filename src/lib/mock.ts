@@ -212,6 +212,7 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     case "stop_instance": db.running.delete(args.id); emitLocal("game-state", { instanceId: args.id, state: "exited", exitCode: 0 }); return r(undefined);
     case "running_instances": return r([...db.running]);
     case "update_check_now": await sleep(800); return r(null);
+    case "update_poke": return r(undefined);
     case "crash_last": return r(crashes[args.instanceId] ?? null);
     case "savepoints": return r({ points: points[args.instanceId] ?? [], diskBytes: (points[args.instanceId] ?? []).length ? 7_200_000 : 0 });
     case "savepoint_create": {

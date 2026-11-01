@@ -41,6 +41,7 @@ export const newJobId = () => crypto.randomUUID();
 
 export const api = {
   updateCheckNow: () => call<FoundUpdate | null>("update_check_now"),
+  updatePoke: () => call<void>("update_poke"),
   checkUpdates: () => call<FoundUpdate | null>("check_updates"),
   inspectUpdate: (path: string) => call<FoundUpdate>("inspect_update", { path }),
   updateOutcome: () => call<UpdateOutcome | null>("update_outcome"),

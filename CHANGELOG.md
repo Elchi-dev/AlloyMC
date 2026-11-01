@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- **A calmer, tidier assistant panel.** One message box with "Think harder" and your
+  share for today inside it, a round send button that only lights up when there's
+  something to send, changes to allow shown right where Claude asks for them, and matching
+  header buttons.
+- **New versions show up sooner.** Alloy checks hourly and whenever you come back to its
+  window (at most every 15 minutes), and AlloyMC learns about a release the moment it's
+  published.
+
 ## 0.4.0
 
 **Claude, inside Alloy.** Open the assistant from the rail (or Ctrl+J), the crash doctor,

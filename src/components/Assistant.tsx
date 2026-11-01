@@ -7,14 +7,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { ArrowUp, Ban, Check, ChevronDown, History, LogIn, MessageSquarePlus, Sparkles, Square, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUp, Ban, BookOpen, Brain, Check, ChevronDown, ChevronLeft, Gauge, History, LogIn, Package, Sparkles, Square, SquarePen, Trash2, TriangleAlert, Wrench, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAssistant, userText, type Approval, type AssistantStatus, type Block, type DiffLine, type Msg } from "../lib/assistant";
 import { openExternal } from "../lib/menus";
 import { useInstance } from "../lib/queries";
 import { ago } from "../lib/format";
 import { toastError, useStore } from "../lib/store";
-import { Segmented } from "./ui";
 import { Ori } from "./ori/Ori";
 
 const WIDTH = 420;
@@ -113,34 +112,40 @@ function Panel() {
 }
 
 function Header({ view, setView }: { view: "chat" | "history"; setView: (v: "chat" | "history") => void }) {
-  const busy = useAssistant((s) => s.busy);
   const hasMessages = useAssistant((s) => s.messages.length > 0);
   const instanceId = useAssistant((s) => s.instanceId);
   const inst = useInstance(instanceId ?? "");
+  const history = view === "history";
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line-soft/60 px-3">
-      <Ori pose={busy ? "thinking" : "hi"} size={30} still={!busy} />
+    <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line-soft/70 pl-3.5 pr-2.5">
+      {history ? (
+        <button className="ai-icon -ml-1" aria-label="Back to the conversation" onClick={() => setView("chat")}>
+          <ChevronLeft size={17} />
+        </button>
+      ) : (
+        <span className="ai-spark" aria-hidden>
+          <Sparkles size={14} strokeWidth={2.2} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] font-semibold leading-tight text-ink">Assistant</p>
-        <p className="truncate text-[11.5px] leading-tight text-ink-3">{view === "history" ? "Earlier conversations" : inst.data ? `About ${inst.data.name}` : "Claude, inside Alloy"}</p>
+        <p className="text-[13.5px] font-semibold leading-[1.2] text-ink">{history ? "Conversations" : "Assistant"}</p>
+        {!history && <p className="truncate text-[11.5px] leading-[1.3] text-ink-3">{inst.data ? `About ${inst.data.name}` : "Claude, inside Alloy"}</p>}
       </div>
-      <button className="btn btn-quiet h-8 w-8 p-0" aria-label="Earlier conversations" aria-pressed={view === "history"} onClick={() => setView(view === "history" ? "chat" : "history")}>
-        <History size={15} />
-      </button>
-      <button
-        className="btn btn-quiet h-8 w-8 p-0"
-        aria-label="New conversation"
-        disabled={!hasMessages && view === "chat"}
-        onClick={() => {
-          useAssistant.getState().reset();
-          setView("chat");
-        }}
-      >
-        <MessageSquarePlus size={15} />
-      </button>
-      <button className="btn btn-quiet h-8 w-8 p-0" aria-label="Close the assistant" onClick={() => useAssistant.getState().setOpen(false)}>
-        <X size={15} />
-      </button>
+      <div className="flex items-center gap-0.5">
+        {!history && hasMessages && (
+          <button className="ai-icon" aria-label="New conversation" title="New conversation" onClick={() => useAssistant.getState().reset()}>
+            <SquarePen size={15} />
+          </button>
+        )}
+        {!history && (
+          <button className="ai-icon" aria-label="Earlier conversations" title="Earlier conversations" onClick={() => setView("history")}>
+            <History size={15} />
+          </button>
+        )}
+        <button className="ai-icon" aria-label="Close the assistant" title="Close (Ctrl+J)" onClick={() => useAssistant.getState().setOpen(false)}>
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -191,29 +196,35 @@ function Conversation() {
   );
 }
 
-const ideas = [
-  "Why does my game crash?",
-  "Build me a cozy 1.21.1 pack with Create and shaders",
-  "Make this instance run faster",
-  "What does each mod in this pack do?",
+const ideas: { text: string; icon: typeof Sparkles }[] = [
+  { text: "Why does my game crash?", icon: TriangleAlert },
+  { text: "Build me a cozy 1.21.1 pack with Create and shaders", icon: Package },
+  { text: "Make this instance run faster", icon: Gauge },
+  { text: "What does each mod in this pack do?", icon: BookOpen },
 ];
 
 function Welcome() {
   const send = useAssistant((s) => s.send);
   return (
-    <div className="flex flex-col items-center pt-6 text-center">
-      <Ori pose="hi" size={110} />
-      <h3 className="mt-3 text-[16px] font-semibold text-ink">Ask about your Minecraft</h3>
-      <p className="mt-1 max-w-[300px] text-[13px] text-ink-3">
-        Claude can look at your instances, logs and crashes, find mods, and fix things. It asks before it changes anything.
-      </p>
-      <div className="mt-5 flex w-full flex-col gap-2">
-        {ideas.map((t) => (
-          <button key={t} className="rounded-[8px] border border-line-soft bg-slate-850/70 px-3 py-2 text-left text-[13px] text-ink-2 transition-colors hover:border-line hover:text-ink" onClick={() => void send(t)}>
-            {t}
-          </button>
-        ))}
+    <div className="flex flex-col pt-4">
+      <div className="flex flex-col items-center text-center">
+        <Ori pose="hi" size={96} />
+        <h3 className="mt-2 font-pixel text-[19px] leading-tight text-ink">Ask about your Minecraft</h3>
+        <p className="mt-1.5 max-w-[290px] text-[13px] leading-relaxed text-ink-3">
+          Claude looks at your instances, logs and crashes, finds mods and fixes things. It asks before it changes anything.
+        </p>
       </div>
+      <ul className="mt-6 overflow-hidden rounded-[12px] border border-line-soft bg-slate-850/50">
+        {ideas.map(({ text, icon: Icon }) => (
+          <li key={text} className="border-b border-line-soft last:border-b-0">
+            <button className="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left text-[13px] text-ink-2 transition-colors hover:bg-slate-800/70 hover:text-ink" onClick={() => void send(text)}>
+              <Icon size={15} className="shrink-0 text-ink-3 transition-colors group-hover:text-gold" />
+              <span className="min-w-0 flex-1">{text}</span>
+              <ArrowUp size={14} className="shrink-0 rotate-45 text-gold opacity-0 transition-opacity group-hover:opacity-100" />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -283,8 +294,9 @@ const verbs: Record<string, string> = {
 function ToolRow({ id, name, result, pending }: { id: string; name: string; result?: Extract<Block, { type: "tool_result" }>; pending?: boolean }) {
   const label = useAssistant((s) => s.labels[id]);
   const running = useAssistant((s) => s.running === id);
-  const waiting = useAssistant((s) => s.approval?.toolUseId === id);
+  const approval = useAssistant((s) => (s.approval?.toolUseId === id ? s.approval : null));
   const [open, setOpen] = useState(false);
+  if (approval) return <ApprovalCard a={approval} />;
   const declined = result?.is_error && /declined|Stopped by the player/.test(result.content);
   const failed = result?.is_error && !declined;
   const icon = pending || running || !result ? <span className="spinner" /> : declined ? <Ban size={13} className="text-ink-3" /> : failed ? <X size={13} className="text-redstone" /> : <Check size={13} className="text-grass" />;
@@ -298,7 +310,6 @@ function ToolRow({ id, name, result, pending }: { id: string; name: string; resu
       >
         <span className="grid w-4 shrink-0 place-items-center">{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label ?? verbs[name] ?? name}</span>
-        {waiting && <span className="shrink-0 text-[11.5px] font-medium text-gold">Waiting for you</span>}
         {result && <ChevronDown size={13} className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />}
       </button>
       <AnimatePresence initial={false}>
@@ -341,17 +352,9 @@ function Markdown({ text }: { text: string }) {
 // ---------- approval, input and status ----------
 
 function Footer({ status, loading }: { status?: AssistantStatus; loading: boolean }) {
-  const approval = useAssistant((s) => s.approval);
   return (
-    <div className="shrink-0 border-t border-line-soft/60 px-3 pb-3 pt-2.5">
-      <AnimatePresence initial={false}>{approval && <ApprovalCard key={approval.toolUseId} a={approval} />}</AnimatePresence>
-      {loading ? null : !status?.signedIn ? (
-        <SignInNotice />
-      ) : !status.available ? (
-        <Unavailable status={status} />
-      ) : (
-        <Composer status={status} />
-      )}
+    <div className="shrink-0 px-3 pb-3 pt-1">
+      {loading ? null : !status?.signedIn ? <SignInNotice /> : !status.available ? <Unavailable status={status} /> : <Composer status={status} />}
     </div>
   );
 }
@@ -401,17 +404,31 @@ function Unavailable({ status }: { status: AssistantStatus }) {
   return <Notice text={text + back} />;
 }
 
-function Meter({ status }: { status: AssistantStatus }) {
+/** How much of today's (or this month's, if that's closer) share is used, as a small ring. */
+function Usage({ status }: { status: AssistantStatus }) {
   if (status.unlimited) return null;
-  const used = Math.max(status.dayUsed, status.monthUsed);
-  const which = status.dayUsed >= status.monthUsed ? "today's" : "this month's";
+  const used = Math.min(100, Math.max(status.dayUsed, status.monthUsed));
+  const which = status.dayUsed >= status.monthUsed ? "today" : "this month";
+  const r = 6;
+  const c = 2 * Math.PI * r;
   return (
-    <div className="flex items-center gap-2 text-[11px] text-ink-3" title={`Today ${status.dayUsed}% · this month ${status.monthUsed}%`}>
-      <div className="h-1 w-16 overflow-hidden rounded-full bg-slate-700">
-        <div className={`h-full rounded-full ${used > 85 ? "bg-molten" : "bg-gold"}`} style={{ width: `${Math.min(100, used)}%` }} />
-      </div>
-      {used}% of {which} use
-    </div>
+    <span className="flex items-center gap-1.5 text-[11.5px] text-ink-3" title={`Used ${status.dayUsed}% of today's share and ${status.monthUsed}% of this month's`}>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+        <circle cx="8" cy="8" r={r} fill="none" stroke="var(--color-slate-700)" strokeWidth="2.2" />
+        <circle
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          stroke={used > 85 ? "var(--color-molten)" : "var(--color-gold)"}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeDasharray={`${(used / 100) * c} ${c}`}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+      {used}% {which}
+    </span>
   );
 }
 
@@ -431,52 +448,52 @@ function Composer({ status }: { status: AssistantStatus }) {
     el.style.height = "auto";
     el.style.height = `${Math.min(160, el.scrollHeight)}px`;
   }, [text]);
+  const ready = !!text.trim() && !busy;
   const submit = () => {
-    if (!text.trim() || busy) return;
+    if (!ready) return;
     void useAssistant.getState().send(text);
     setText("");
   };
+  const deep = mode === "deep";
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-end gap-2 rounded-[10px] border border-line bg-slate-950/70 p-1.5 pl-3 focus-within:border-gold/60">
-        <textarea
-          ref={ref}
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={pending ? "Allow or decline the change above" : busy ? "Claude is working…" : "Ask about mods, crashes, packs…"}
-          disabled={busy}
-          maxLength={8000}
-          className="max-h-40 min-h-[30px] flex-1 resize-none bg-transparent py-1 text-[13.5px] text-ink outline-none placeholder:text-ink-3"
-          aria-label="Message"
-        />
+    <div className="ai-plate" onClick={(e) => e.target === e.currentTarget && ref.current?.focus()}>
+      <textarea
+        ref={ref}
+        rows={1}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder={pending ? "Allow or decline the change first" : busy ? "Claude is working…" : "Ask about mods, crashes, packs…"}
+        disabled={busy}
+        maxLength={8000}
+        className="block max-h-40 min-h-[44px] w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[13.5px] leading-[1.5] text-ink outline-none placeholder:text-ink-3"
+        aria-label="Message"
+      />
+      <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+        <button
+          className="ai-chip"
+          aria-pressed={deep}
+          onClick={() => useAssistant.getState().setMode(deep ? "fast" : "deep")}
+          title={deep ? "Claude Sonnet: slower, for knotty crashes and building packs" : "Use Claude Sonnet for harder problems"}
+        >
+          <Brain size={13} /> Think harder
+        </button>
+        <span className="flex-1" />
+        <Usage status={status} />
         {busy ? (
-          <button className="btn h-8 w-8 shrink-0 p-0" aria-label="Stop" onClick={() => useAssistant.getState().stop()}>
-            <Square size={12} fill="currentColor" />
+          <button className="ai-send" aria-label="Stop" onClick={() => useAssistant.getState().stop()}>
+            <Square size={10} fill="currentColor" strokeWidth={0} />
           </button>
         ) : (
-          <button className="btn btn-gold h-8 w-8 shrink-0 p-0" aria-label="Send" disabled={!text.trim()} onClick={submit}>
-            <ArrowUp size={15} />
+          <button className="ai-send" data-on={ready ? "" : undefined} aria-label="Send" disabled={!ready} onClick={submit}>
+            <ArrowUp size={15} strokeWidth={2.4} />
           </button>
         )}
-      </div>
-      <div className="flex items-center justify-between">
-        <Segmented
-          label="How hard Claude thinks"
-          value={mode}
-          onChange={(m) => useAssistant.getState().setMode(m)}
-          options={[
-            { value: "fast", label: "Quick" },
-            { value: "deep", label: "Think harder" },
-          ]}
-        />
-        <Meter status={status} />
       </div>
     </div>
   );
@@ -486,32 +503,36 @@ function ApprovalCard({ a }: { a: Approval }) {
   const answer = useAssistant((s) => s.answer);
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8, transition: { duration: 0.12 } }}
-      className="mb-2.5 rounded-[10px] border border-gold/40 bg-slate-850 p-3 shadow-lg"
+      className="ai-ask"
       role="alertdialog"
       aria-label="Allow this change?"
     >
-      <div className="flex items-start gap-2">
-        <Wrench size={14} className="mt-0.5 shrink-0 text-gold" />
+      <div className="flex items-start gap-2.5 px-3.5 pt-3">
+        <Wrench size={14} className="mt-[3px] shrink-0 text-gold" />
         <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-medium text-ink">{a.title}</p>
-          {a.detail && <p className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap text-[12.5px] text-ink-3">{a.detail}</p>}
+          <p className="text-[13.5px] font-medium leading-snug text-ink">{a.title}</p>
+          {a.detail && <p className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-ink-3">{a.detail}</p>}
         </div>
       </div>
-      {a.diff && <Diff lines={a.diff} />}
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+      {a.diff && (
+        <div className="px-3.5">
+          <Diff lines={a.diff} />
+        </div>
+      )}
+      <div className="mt-3 flex items-center gap-2 border-t border-line-soft/80 px-3.5 py-2.5">
         {!a.always && (
-          <button className="mr-auto text-[12px] text-ink-3 transition-colors hover:text-ink" onClick={() => answer(true, true)}>
-            Allow everything in this chat
+          <button className="mr-auto rounded-[6px] text-[12px] text-ink-3 transition-colors hover:text-ink" onClick={() => answer(true, true)}>
+            Allow the rest of this chat
           </button>
         )}
+        {a.always && <span className="mr-auto text-[12px] text-ink-3">Deleting always asks</span>}
         <button className="btn btn-quiet h-8" onClick={() => answer(false)}>
           Decline
         </button>
-        <button className="btn btn-gold h-8" onClick={() => answer(true)} autoFocus>
-          <Check size={13} /> Allow
+        <button className="btn btn-gold h-8" onClick={() => answer(true)}>
+          <Check size={13} strokeWidth={2.6} /> Allow
         </button>
       </div>
     </motion.div>
@@ -520,7 +541,7 @@ function ApprovalCard({ a }: { a: Approval }) {
 
 function Diff({ lines }: { lines: DiffLine[] }) {
   return (
-    <pre className="mt-2 max-h-56 overflow-auto rounded-[6px] bg-slate-950/80 py-1.5 font-mono text-[11px] leading-[1.55]" data-selectable>
+    <pre className="mt-2.5 max-h-56 overflow-auto rounded-[8px] border border-line-soft bg-slate-950/90 py-1.5 font-mono text-[11px] leading-[1.6]" data-selectable>
       {lines.map((l, i) =>
         l.kind === "gap" ? (
           <div key={i} className="px-2.5 text-ink-3/70">
@@ -551,11 +572,11 @@ function HistoryList({ onPick }: { onPick: () => void }) {
       </div>
     );
   return (
-    <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+    <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
       {chats.map((c) => (
-        <li key={c.id} className="group flex items-center gap-1">
+        <li key={c.id} className="group relative">
           <button
-            className={`min-w-0 flex-1 rounded-[8px] px-3 py-2 text-left transition-colors hover:bg-slate-800 ${c.id === current ? "bg-slate-800/70" : ""}`}
+            className={`w-full rounded-[10px] py-2.5 pl-3.5 pr-11 text-left transition-colors hover:bg-slate-800/80 ${c.id === current ? "bg-slate-800/60" : ""}`}
             onClick={async () => {
               try {
                 await useAssistant.getState().load(c.id);
@@ -566,18 +587,19 @@ function HistoryList({ onPick }: { onPick: () => void }) {
             }}
           >
             <p className="truncate text-[13px] text-ink">{c.title}</p>
-            <p className="text-[11.5px] text-ink-3">{ago(c.updated)}</p>
+            <p className="mt-0.5 text-[11.5px] text-ink-3">{ago(c.updated)}</p>
           </button>
           <button
-            className="btn btn-quiet h-8 w-8 shrink-0 p-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+            className="ai-icon absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             aria-label={`Delete “${c.title}”`}
+            title="Delete"
             onClick={async () => {
               await api.assistantChatDelete(c.id).catch(toastError);
               if (c.id === current) useAssistant.getState().reset();
               void refetch();
             }}
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
           </button>
         </li>
       ))}
