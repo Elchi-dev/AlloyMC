@@ -65,6 +65,28 @@ export interface Account {
   needsLogin: boolean;
 }
 
+/** A Minecraft account linked to the AlloyMC profile. */
+export interface LinkedMinecraft {
+  uuid: string;
+  name: string;
+  shown: boolean;
+  headUrl?: string | null;
+}
+
+/** The signed-in AlloyMC account. */
+export interface AlloyProfile {
+  handle: string;
+  displayName: string;
+  avatarUrl: string;
+  profileUrl: string;
+  accent: string;
+  followers: number;
+  following: number;
+  email: string;
+  emailVerified: boolean;
+  minecraft: LinkedMinecraft[];
+}
+
 export interface Settings {
   theme: "dark" | "light" | "oled" | "system";
   accent: string;
@@ -390,4 +412,103 @@ export interface UpdateOutcome {
   from: string;
   to: string;
   notes: string;
+}
+
+/** What the crash doctor made of a crash. */
+export type CrashKind = "outOfMemory" | "wrongJava" | "graphicsDriver" | "nativeCrash" | "mixinFailed" | "missingDependency" | "duplicateMod" | "modError" | "killed" | "unknown";
+export type Confidence = "low" | "medium" | "high";
+
+export interface Suspect {
+  path: string;
+  name: string;
+  modId?: string | null;
+  confidence: Confidence;
+  reason: string;
+}
+
+export type CrashFix =
+  | { kind: "disableMod"; path: string }
+  | { kind: "raiseMemory"; mb: number }
+  | { kind: "useJava"; major: number };
+
+export interface Diagnosis {
+  kind: CrashKind;
+  title: string;
+  detail: string;
+  suspects: Suspect[];
+  fixes: CrashFix[];
+  evidence: string[];
+  reportPath?: string | null;
+  afterStart: boolean;
+  canBisect: boolean;
+  exitCode?: number | null;
+  at: number;
+}
+
+export interface BisectStep {
+  trial: number;
+  estimate: number;
+  enabled: number;
+  suspects: number;
+}
+
+export interface BisectFound {
+  culprits: string[];
+  names: string[];
+  alone: boolean;
+  trials: number;
+}
+
+/** A copy of an instance's setup to go back to. */
+export interface SavePoint {
+  id: string;
+  label: string;
+  auto: boolean;
+  createdAt: number;
+  gameVersion: string;
+  loader: Loader;
+  loaderVersion?: string | null;
+  mods: number;
+  size: number;
+}
+export interface SavePoints {
+  points: SavePoint[];
+  diskBytes: number;
+}
+
+export type ExportFormat = "mrpack" | "curseForge";
+export interface ExportCandidate {
+  path: string;
+  size: number;
+  files: number;
+  suggested: boolean;
+}
+export interface ExportOptions {
+  format: ExportFormat;
+  name: string;
+  version: string;
+  author?: string | null;
+  summary?: string | null;
+  include: string[];
+  dest: string;
+}
+export interface ExportReport {
+  path: string;
+  size: number;
+  linked: number;
+  bundled: string[];
+}
+
+export type OtherLauncher = "prism" | "multiMc" | "curseForgeApp" | "modrinthApp";
+/** An instance another launcher has. */
+export interface FoundInstance {
+  from: OtherLauncher;
+  name: string;
+  gameDir: string;
+  gameVersion: string;
+  loader: Loader;
+  loaderVersion?: string | null;
+  mods: number;
+  worlds: number;
+  memoryMb?: number | null;
 }

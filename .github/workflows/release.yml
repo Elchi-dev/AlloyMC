@@ -1,6 +1,6 @@
 name: Release
 
-# Builds the public Alloy (no CurseForge key) for Windows and Linux when a v* tag is pushed
+# Builds the public Alloy (CurseForge through the AlloyMC proxy) for Windows and Linux when a v* tag is pushed
 # to the private repo. With the signing secrets set, it also signs the installers and packs
 # `.alloyupdate` files for one-click updates. Artifacts are uploaded to the run; the Promote
 # workflow (or a maintainer) publishes them on AlloyMC.

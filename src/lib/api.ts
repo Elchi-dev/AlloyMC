@@ -3,11 +3,12 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
+  AlloyProfile,
+  LinkedMinecraft,
   Account, AddedFile, CfFile, CfMod, ContentHit, ContentUpdate, Dependency, Fix, GameVersion, InstallOutcome,
   Instance, Job, LinkPreview, Loader, LoaderVersion, MemoryAdvice, ModrinthProject, ModrinthVersion, NewInstance,
   Overview, Platform, Preflight, SearchPage, SearchQuery, Settings, Suggestion, UpdateResult, FoundUpdate,
-  UpdateOutcome, BlockedFile,
-} from "./types";
+  UpdateOutcome, BlockedFile, BisectFound, CrashFix, Diagnosis, SavePoint, SavePoints, ExportCandidate, ExportOptions, ExportReport, FoundInstance } from "./types";
 
 type ImportResult = { instance: Instance; blocked: BlockedFile[] };
 
@@ -55,6 +56,12 @@ export const api = {
   accounts: () => call<{ accounts: Account[]; active: string | null }>("list_accounts"),
   addOffline: (name: string) => call<Account>("add_offline_account", { name }),
   loginMicrosoft: () => call<Account>("login_microsoft"),
+  alloymcProfile: (refresh = false) => call<AlloyProfile | null>("alloymc_profile", { refresh }),
+  alloymcSignIn: () => call<AlloyProfile>("alloymc_sign_in"),
+  alloymcCancelSignIn: () => call<void>("alloymc_cancel_sign_in"),
+  alloymcSignOut: () => call<void>("alloymc_sign_out"),
+  alloymcLink: (accountId: string) => call<LinkedMinecraft>("alloymc_link_minecraft", { accountId }),
+  alloymcUnlink: (uuid: string) => call<void>("alloymc_unlink_minecraft", { uuid }),
   removeAccount: (id: string) => call<void>("remove_account", { id }),
   setActiveAccount: (id: string) => call<void>("set_active_account", { id }),
 
@@ -103,6 +110,20 @@ export const api = {
 
   jobs: () => call<Job[]>("list_jobs"),
   cancelJob: (id: string) => call<boolean>("cancel_job", { id }),
+  crashLast: (instanceId: string) => call<Diagnosis | null>("crash_last", { instanceId }),
+  crashDismiss: (instanceId: string) => call<void>("crash_dismiss", { instanceId }),
+  crashApplyFix: (instanceId: string, fix: CrashFix) => call<void>("crash_apply_fix", { instanceId, fix }),
+  bisectStart: (instanceId: string) => call<BisectFound>("bisect_start", { instanceId }),
+  savepoints: (instanceId: string) => call<SavePoints>("savepoints", { instanceId }),
+  savepointCreate: (instanceId: string, label: string) => call<SavePoint>("savepoint_create", { instanceId, label }),
+  savepointRestore: (instanceId: string, pointId: string) => call<Instance>("savepoint_restore", { instanceId, pointId }),
+  savepointRename: (instanceId: string, pointId: string, label: string) => call<void>("savepoint_rename", { instanceId, pointId, label }),
+  savepointDelete: (instanceId: string, pointId: string) => call<void>("savepoint_delete", { instanceId, pointId }),
+  exportCandidates: (instanceId: string) => call<ExportCandidate[]>("export_candidates", { instanceId }),
+  exportInstance: (instanceId: string, options: ExportOptions) => call<ExportReport>("export_instance", { instanceId, options }),
+  importDiscover: () => call<FoundInstance[]>("import_discover"),
+  importInspect: (path: string) => call<FoundInstance[]>("import_inspect", { path }),
+  importInstance: (found: FoundInstance) => call<Instance>("import_instance", { found }),
   retryJob: (id: string) => call<void>("retry_job", { id }),
   clearJobs: () => call<void>("clear_jobs"),
 };

@@ -3,6 +3,12 @@
 //! The crate is UI-agnostic. The Tauri shell owns a [`Launcher`] and calls into it;
 //! long-running work reports through a [`progress::ProgressFn`] callback.
 
+pub mod alloymc;
+pub mod bisect;
+pub mod crash;
+pub mod savepoint;
+pub mod export;
+pub mod importers;
 pub mod auth;
 pub mod content;
 pub mod download;

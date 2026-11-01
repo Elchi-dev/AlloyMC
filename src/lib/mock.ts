@@ -2,7 +2,7 @@
 // Search hits the real Modrinth API (it allows CORS); everything else is in memory.
 
 import { emitLocal } from "./bus";
-import type { Account, ContentItem, Instance, Settings, Stage } from "./types";
+import type { Account, ContentItem, Instance, Settings, Stage, Diagnosis, SavePoint } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const inst = (p: Partial<Instance> & Pick<Instance, "id" | "name" | "gameVersion" | "loader">): Instance => ({
@@ -28,6 +28,7 @@ const db = {
     maxConcurrentDownloads: 16, onLaunch: "keep_open", customMsaClientId: null, curseforgeApiKey: null,
   } as Settings,
   running: new Set<string>(),
+  alloymc: null as null | { handle: string; displayName: string; avatarUrl: string; profileUrl: string; accent: string; followers: number; following: number; email: string; emailVerified: boolean; minecraft: { uuid: string; name: string; shown: boolean }[] },
 };
 
 const item = (p: Partial<ContentItem> & Pick<ContentItem, "path" | "title">): ContentItem => ({
@@ -76,6 +77,41 @@ async function modrinthSearch(args: any) {
     })),
   };
 }
+
+// A crash to look at in the browser: run alloyMock.crash() in the console.
+const demoCrash = (): Diagnosis => ({
+  kind: "mixinFailed",
+  title: "Iris Shaders doesn't fit this setup",
+  detail: "Iris Shaders changes Minecraft's code, and that change failed. Usually it's built for another Minecraft or loader version, or it clashes with another mod that changes the same code. Update it, or turn it off.",
+  suspects: [
+    { path: "mods/iris.jar", name: "Iris Shaders", modId: "iris", confidence: "high", reason: "A mixin of this mod failed to apply." },
+    { path: "mods/sodium.jar", name: "Sodium", modId: "sodium", confidence: "low", reason: "Its code is at the top of the crash." },
+  ],
+  fixes: [{ kind: "disableMod", path: "mods/iris.jar" }],
+  evidence: [
+    "Mixin apply for mod iris failed iris.mixins.json:MixinLevelRenderer from mod iris -> net.minecraft.class_761: InjectionError",
+    "org.spongepowered.asm.mixin.injection.throwables.InjectionError: Critical injection failure: @Inject annotation on onRender could not find any targets matching 'renderLevel'",
+    "at org.spongepowered.asm.mixin.injection.struct.InjectionInfo.validateTargets(InjectionInfo.java:656)",
+  ],
+  reportPath: "crash-reports/crash-2026-11-01_10.42.13-client.txt",
+  afterStart: false,
+  canBisect: true,
+  exitCode: -1,
+  at: Math.floor(Date.now() / 1000),
+});
+const crashes: Record<string, Diagnosis> = {};
+const points: Record<string, SavePoint[]> = {
+  "fabulously-optimized": [
+    { id: "p2", label: "Before updating 6 files", auto: true, createdAt: now - 86400 * 2, gameVersion: "1.21.1", loader: "fabric", loaderVersion: "0.20.1", mods: 4, size: 6_300_000 },
+    { id: "p1", label: "Working setup with Iris", auto: false, createdAt: now - 86400 * 9, gameVersion: "1.21.1", loader: "fabric", loaderVersion: "0.16.5", mods: 3, size: 5_100_000 },
+  ],
+};
+(globalThis as any).alloyMock = {
+  crash(id = "fabulously-optimized") {
+    crashes[id] = demoCrash();
+    emitLocal("crash-diagnosis", { instanceId: id, diagnosis: crashes[id] });
+  },
+};
 
 export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
   await sleep(40);
@@ -128,13 +164,61 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     }
     case "stop_instance": db.running.delete(args.id); emitLocal("game-state", { instanceId: args.id, state: "exited", exitCode: 0 }); return r(undefined);
     case "running_instances": return r([...db.running]);
+    case "crash_last": return r(crashes[args.instanceId] ?? null);
+    case "savepoints": return r({ points: points[args.instanceId] ?? [], diskBytes: (points[args.instanceId] ?? []).length ? 7_200_000 : 0 });
+    case "savepoint_create": {
+      const p = { id: `p${Date.now()}`, label: args.label, auto: false, createdAt: Math.floor(Date.now() / 1000), gameVersion: "1.21.1", loader: "fabric" as const, loaderVersion: "0.20.1", mods: content.filter((c) => c.kind === "mod").length, size: 6_300_000 };
+      points[args.instanceId] = [p, ...(points[args.instanceId] ?? [])]; emitLocal("savepoints-changed", null); return r(p);
+    }
+    case "savepoint_restore": await sleep(700); emitLocal("savepoints-changed", null); return r(db.instances.find((i) => i.id === args.instanceId));
+    case "savepoint_rename": { const p = points[args.instanceId]?.find((x) => x.id === args.pointId); if (p) { p.label = args.label; p.auto = false; } emitLocal("savepoints-changed", null); return r(undefined); }
+    case "savepoint_delete": points[args.instanceId] = (points[args.instanceId] ?? []).filter((x) => x.id !== args.pointId); emitLocal("savepoints-changed", null); return r(undefined);
+    case "export_candidates": return r([{ path: "config", size: 182_000, files: 41, suggested: true }, { path: "options.txt", size: 5_200, files: 1, suggested: false }, { path: "saves", size: 48_000_000, files: 812, suggested: false }]);
+    case "export_instance": await sleep(1200); return r({ path: args.options.dest, size: 214_000, linked: 3, bundled: ["Just Enough Items"] });
+    case "import_discover": await sleep(500); return r([
+      { from: "prism", name: "All the Mods 10", gameDir: "/home/elchi/.local/share/PrismLauncher/instances/ATM10/.minecraft", gameVersion: "1.21.1", loader: "neoforge", loaderVersion: "21.1.77", mods: 412, worlds: 3, memoryMb: 10240 },
+      { from: "prism", name: "Vanilla speedrun", gameDir: "/home/elchi/.local/share/PrismLauncher/instances/speedrun/.minecraft", gameVersion: "1.16.1", loader: "fabric", loaderVersion: "0.16.5", mods: 9, worlds: 41 },
+      { from: "modrinthApp", name: "Cobblemon Official", gameDir: "/home/elchi/.local/share/ModrinthApp/profiles/Cobblemon Official", gameVersion: "1.21.1", loader: "fabric", loaderVersion: "0.16.10", mods: 73, worlds: 1 },
+    ]);
+    case "import_inspect": return r([]);
+    case "import_instance": await sleep(900); return r(db.instances[0]);
+    case "crash_dismiss": delete crashes[args.instanceId]; return r(undefined);
+    case "crash_apply_fix": {
+      if (args.fix.kind === "disableMod") { const c = content.find((x) => x.path === args.fix.path); if (c) c.enabled = false; emitLocal("content-changed", null); }
+      delete crashes[args.instanceId]; return r(undefined);
+    }
+    case "bisect_start": {
+      const steps = [[5, 8], [3, 4], [2, 2], [1, 1]];
+      for (const [i, [enabled, suspects]] of steps.entries()) {
+        emitLocal("bisect-progress", { instanceId: args.instanceId, step: { trial: i + 1, estimate: 4, enabled, suspects } });
+        await sleep(1500);
+      }
+      const found = { culprits: ["mods/iris.jar"], names: ["Iris Shaders"], alone: true, trials: 4 };
+      emitLocal("bisect-progress", { instanceId: args.instanceId, found });
+      return r(found);
+    }
+    case "alloymc_profile": return r(db.alloymc);
+    case "alloymc_sign_in": {
+      await sleep(1500);
+      db.alloymc = { handle: "elchi", displayName: "Elchi", avatarUrl: "https://api.alloymc.dev/v1/users/elchi/avatar.png", profileUrl: "https://alloymc.dev/@elchi", accent: "gold", followers: 12, following: 3, email: "elchi@example.com", emailVerified: true, minecraft: [] };
+      emitLocal("alloymc-changed", null); return r(db.alloymc);
+    }
+    case "alloymc_cancel_sign_in": return r(undefined);
+    case "alloymc_sign_out": db.alloymc = null; emitLocal("alloymc-changed", null); return r(undefined);
+    case "alloymc_link_minecraft": {
+      await sleep(900);
+      const a = db.accounts.find((x) => x.id === args.accountId)!;
+      if (a.kind !== "microsoft") throw "Only Microsoft accounts can be linked. Offline players can't prove who they are.";
+      db.alloymc?.minecraft.push({ uuid: a.id, name: a.username, shown: true });
+      emitLocal("alloymc-changed", null); return r({ uuid: a.id, name: a.username, shown: true });
+    }
+    case "alloymc_unlink_minecraft": if (db.alloymc) db.alloymc.minecraft = db.alloymc.minecraft.filter((m) => m.uuid !== args.uuid); emitLocal("alloymc-changed", null); return r(undefined);
     case "list_accounts": return r({ accounts: db.accounts, active: db.active });
     case "add_offline_account": { const a: Account = { id: crypto.randomUUID().replace(/-/g, ""), kind: "offline", username: args.name, addedAt: now, needsLogin: false }; db.accounts.push(a); db.active = a.id; emitLocal("accounts-changed", null); return r(a); }
     case "login_microsoft": await sleep(1200); throw "The Microsoft login window opens in the desktop app.";
     case "remove_account": db.accounts = db.accounts.filter((a) => a.id !== args.id); if (db.active === args.id) db.active = db.accounts[0]?.id ?? null; emitLocal("accounts-changed", null); return r(undefined);
     case "set_active_account": db.active = args.id; emitLocal("accounts-changed", null); return r(undefined);
     case "search_content":
-      if (args.platform === "curseforge" && !db.settings.curseforgeApiKey) throw "CurseForge support is a work in progress";
       return r(await modrinthSearch(args));
     case "modrinth_versions": {
       const res = await fetch(`https://api.modrinth.com/v2/project/${args.projectId}/version`);

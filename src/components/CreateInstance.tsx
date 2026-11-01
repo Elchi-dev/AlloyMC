@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { OtherLaunchers } from "./OtherLaunchers";
 import { useQuery } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import { open as openFile } from "@tauri-apps/plugin-dialog";
@@ -16,7 +17,7 @@ export function CreateInstanceDialog() {
   const open = useStore((s) => s.createOpen);
   const setOpen = useStore((s) => s.setCreateOpen);
   const go = useStore((s) => s.go);
-  const [mode, setMode] = useState<"new" | "import">("new");
+  const [mode, setMode] = useState<"new" | "import" | "other">("new");
   const [name, setName] = useState("");
   const [snapshots, setSnapshots] = useState(false);
   const [version, setVersion] = useState("");
@@ -115,6 +116,7 @@ export function CreateInstanceDialog() {
           options={[
             { value: "new", label: "From scratch" },
             { value: "import", label: "Import a modpack" },
+            { value: "other", label: "From another launcher" },
           ]}
         />
       </div>
@@ -226,6 +228,8 @@ export function CreateInstanceDialog() {
             </button>
           </div>
         </form>
+      ) : mode === "other" ? (
+        <OtherLaunchers onDone={close} />
       ) : (
         <div className="flex flex-col gap-4 p-5">
           <form

@@ -23,11 +23,19 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 | `system` | Installed memory and other machine facts |
 | `modpack` | `.mrpack` and CurseForge `.zip` import from file or URL |
 | `textures` | Block textures read from Mojang's client jar with HTTP range requests |
+| `alloymc` | AlloyMC account: browser sign-in (PKCE, loopback redirect), profile cache, token in the `SecretStore`, Minecraft linking through Mojang's session join |
+| `crash` | The crash doctor: gathers the crash report, `latest.log`, `hs_err` and the output tail; names the kind of crash and the mods it points at, with fixes |
+| `bisect` | Finds the mod behind a startup crash by starting the game with halves of the mods off; requirements come along; restores mods even after a crash of Alloy |
+| `savepoint` | Save points: the setup folders of an instance, stored by SHA-1 under `<data>/savepoints`, restore with an automatic undo point, garbage collection |
+| `export` | `.mrpack` and CurseForge `.zip` export: files listed by reference where the platform knows them, the rest bundled |
+| `importers` | Finds and copies instances of Prism Launcher, MultiMC, the CurseForge App and the Modrinth App (SQLite `app.db`, read-only) |
 | `download` | Parallel, retrying, hash-checked downloads written via `.part` + rename |
 
 `examples/` holds runnable checks: `smoke` (create, install, launch any loader), `pack`
 (install, scan and check a Modrinth pack), `check`, `content` (install, fixes, updates,
-blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`.
+blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
+xvfb-run), `alloymc` (sign in
+to a running alloy-server and back out).
 
 ## src-tauri
 
@@ -43,10 +51,15 @@ cancellable and retryable. Long jobs report through events:
 | `jobs-changed` | the full job list |
 | `net-speed` | `{ bytesPerSec }`, twice a second while anything downloads |
 | `blocked-collected` | `{ instanceId, titles }` when a CurseForge file arrived in Downloads |
-| `instances-changed`, `accounts-changed`, `content-changed`, `blocked-changed`, `textures-ready` | none; the UI refetches |
+| `savepoints-changed` | none; the Save points tab refetches |
+| `crash-diagnosis` | `{ instanceId, diagnosis }` after a run that crashed |
+| `bisect-progress` | `{ instanceId, step? , found?, error? }` while the crash doctor tests |
+| `instances-changed`, `accounts-changed`, `alloymc-changed`, `content-changed`, `blocked-changed`, `textures-ready` | none; the UI refetches |
 
 `ms_login.rs` opens Microsoft's page in a private webview and reads the auth code from the
-redirect. `secrets.rs` stores refresh tokens in the OS keychain with a file fallback.
+redirect. `alloymc.rs` signs in to AlloyMC the other way round: the person's own browser
+(Google blocks embedded webviews) with the code coming back to a one-shot listener on
+127.0.0.1 (RFC 8252). `secrets.rs` stores refresh tokens in the OS keychain with a file fallback.
 `alloy --fetch-assets [dir]` runs headless for installers.
 
 ## Frontend (src/)
@@ -62,14 +75,19 @@ redirect. `secrets.rs` stores refresh tokens in the OS keychain with a file fall
 ```
 <data>/                         %APPDATA%/Alloy, ~/.local/share/alloy, or $ALLOY_DATA_DIR
   settings.json  accounts.json  secrets.json (fallback only)
+  alloymc.json                    the AlloyMC profile last seen (the token is in the keychain)
   meta/  versions/  libraries/  assets/  natives/  java/  textures/
   instances/<id>/instance.json  + the game folder (mods/, saves/, ...)
   instances/<id>/alloy.lock               every file with its hash and source
   instances/<id>/.launcher/content.json   what each installed file is and where it came from
   instances/<id>/.launcher/scan.json      cached jar metadata and hashes
   instances/<id>/.launcher/blocked.json   CurseForge files waiting in Downloads
+  instances/<id>/.launcher/crash.json     the last crash diagnosis, until dismissed
+  instances/<id>/.launcher/bisect.json    which mods were on, while the crash doctor tests
   meta/installers/                        Forge/NeoForge installers and their processor results
   trash/                          deleted instances, kept until you empty it
+  savepoints/objects/             files of every save point, by SHA-1, stored once
+  savepoints/instances/<id>/      one manifest per save point
 ```
 
 ## Art pipeline

@@ -99,6 +99,10 @@ pub struct JarMeta {
     /// The jar is a Sinytra Connector-style bridge that loads Fabric mods on (Neo)Forge.
     #[serde(default)]
     pub loads_fabric_mods: bool,
+    /// Java packages the jar's classes live in (bundled jars included), shortest first, at
+    /// most four levels deep: how the crash doctor tells whose code is in a stack trace.
+    #[serde(default)]
+    pub packages: Vec<String>,
 }
 
 impl JarMeta {
@@ -137,7 +141,7 @@ pub fn read_path(path: &std::path::Path) -> std::io::Result<JarMeta> {
 
 pub fn read<R: Read + Seek>(reader: R, depth: u8) -> Option<JarMeta> {
     let mut zip = zip::ZipArchive::new(reader).ok()?;
-    let mut meta = JarMeta::default();
+    let mut meta = JarMeta { packages: packages(zip.file_names()), ..Default::default() };
     let manifest = text(&mut zip, "META-INF/MANIFEST.MF");
     let manifest_version = manifest.as_deref().and_then(|m| manifest_value(m, "Implementation-Version"));
 
@@ -203,12 +207,39 @@ pub fn read<R: Read + Seek>(reader: R, depth: u8) -> Option<JarMeta> {
             if let Some(inner) = read(Cursor::new(buf), depth + 1) {
                 meta.nested.extend(inner.mods);
                 meta.nested.extend(inner.nested);
+                meta.packages.extend(inner.packages);
             }
         }
     }
+    meta.packages = minimal_prefixes(std::mem::take(&mut meta.packages));
     // Sinytra Connector loads Fabric mods on Forge and NeoForge.
     meta.loads_fabric_mods = meta.mods.iter().chain(meta.nested.iter()).any(|m| matches!(m.id.as_str(), "connectormod" | "connector"));
     Some(meta)
+}
+
+/// The packages classes sit in, cut to four levels (`net.caffeinemc.mods.sodium`).
+fn packages<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = names
+        .filter(|n| n.ends_with(".class") && !n.starts_with("META-INF/"))
+        .filter_map(|n| n.rsplit_once('/').map(|(dir, _)| dir))
+        .map(|dir| dir.split('/').take(4).collect::<Vec<_>>().join("."))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Drops packages already covered by a shorter one, and keeps at most 48.
+fn minimal_prefixes(mut all: Vec<String>) -> Vec<String> {
+    all.sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
+    let mut out: Vec<String> = vec![];
+    for p in all {
+        if !out.iter().any(|o| p == *o || p.starts_with(&format!("{o}."))) {
+            out.push(p);
+        }
+    }
+    out.truncate(48);
+    out
 }
 
 /// Reads one small text entry; skips anything implausibly large.

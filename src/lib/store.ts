@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import type { FoundUpdate, Job, Platform, Preflight, Progress } from "./types";
+import type { FoundUpdate, Job, Platform, Preflight, Progress, BisectFound, BisectStep, Diagnosis } from "./types";
 
 export type Page =
   | { name: "home" }
   | { name: "library" }
   | { name: "discover"; target?: string; kind?: "mod" | "modpack" | "resourcepack" | "shader" }
-  | { name: "instance"; id: string; tab?: "content" | "logs" | "settings" }
+  | { name: "instance"; id: string; tab?: "content" | "savepoints" | "logs" | "settings" }
   | { name: "project"; platform: Platform; id: string; target?: string }
   | { name: "settings" };
 
@@ -70,6 +70,13 @@ interface State {
   /** Problems found right before launching; the dialog shows while this is set. */
   preflight: { instanceId: string; result: Preflight } | null;
   setPreflight: (p: { instanceId: string; result: Preflight } | null) => void;
+
+  /** A crash the doctor looked at; the dialog shows while this is set. */
+  crash: { instanceId: string; diagnosis: Diagnosis } | null;
+  setCrash: (c: { instanceId: string; diagnosis: Diagnosis } | null) => void;
+  /** Bisects in progress or just finished, per instance. */
+  bisect: Record<string, { step?: BisectStep; found?: BisectFound; error?: string; running: boolean }>;
+  setBisect: (id: string, b: { step?: BisectStep; found?: BisectFound; error?: string; running: boolean } | undefined) => void;
 
   /** What the window is being dragged over, for the drop overlay. */
   dropping: boolean;
@@ -141,6 +148,17 @@ export const useStore = create<State>((set, get) => ({
 
   preflight: null,
   setPreflight: (preflight) => set({ preflight }),
+
+  crash: null,
+  setCrash: (crash) => set({ crash }),
+  bisect: {},
+  setBisect: (id, b) =>
+    set((s) => {
+      const next = { ...s.bisect };
+      if (b) next[id] = b;
+      else delete next[id];
+      return { bisect: next };
+    }),
 
   dropping: false,
   setDropping: (dropping) => set({ dropping }),

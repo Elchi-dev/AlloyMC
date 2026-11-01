@@ -6,7 +6,7 @@ import { reportOutcome } from "../components/Problems";
 import { LinkDialog } from "./InstanceContent";
 import { api, newJobId } from "../lib/api";
 import { ago, compact, loaderName } from "../lib/format";
-import { useInstances, useSettings } from "../lib/queries";
+import { useInstances } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
 import { useJobProgress } from "../components/Downloads";
 import type { ContentHit, ContentKind, Instance, Platform } from "../lib/types";
@@ -29,9 +29,6 @@ function useDebounced<T>(v: T, ms = 250) {
 
 export function DiscoverPage({ target, kind: initialKind }: { target?: string; kind?: ContentKind }) {
   const { data: instances } = useInstances();
-  const { data: settings } = useSettings();
-  const info = useQuery({ queryKey: ["appInfo"], queryFn: api.appInfo, staleTime: Infinity });
-  const cfReady = !!info.data?.curseforgeBuiltin || !!settings?.curseforgeApiKey;
   const [platform, setPlatform] = useState<Platform>("modrinth");
   const [kind, setKind] = useState<ContentKind>(initialKind ?? (target ? "mod" : "modpack"));
   const [targetId, setTargetId] = useState<string | undefined>(target);
@@ -48,7 +45,6 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
 
   const results = useQuery({
     queryKey: ["search", platform, kind, query, sort, forPack ? null : instance?.gameVersion, forPack ? null : instance?.loader],
-    enabled: platform === "modrinth" || cfReady,
     queryFn: () =>
       api.search(platform, {
         query,
@@ -87,14 +83,7 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
           onChange={setPlatform}
           options={[
             { value: "modrinth", label: "Modrinth" },
-            {
-              value: "curseforge",
-              label: cfReady ? "CurseForge" : (
-                <span className="flex items-center gap-1.5">
-                  CurseForge <span className="rounded-[4px] bg-gold/15 px-1 text-[10px] font-semibold text-gold">WIP</span>
-                </span>
-              ),
-            },
+            { value: "curseforge", label: "CurseForge" },
           ]}
         />
       </div>
@@ -121,14 +110,7 @@ export function DiscoverPage({ target, kind: initialKind }: { target?: string; k
         </select>
       </div>
 
-      {platform === "curseforge" && !cfReady ? (
-        <Empty
-          pose="working"
-          title="CurseForge is a work in progress"
-          body="It arrives with the Alloy server, which keeps the API key off your machine. Modrinth works fully today. Have your own CurseForge key? Paste it in Settings to try it now."
-          action={<button className="btn" onClick={() => useStore.getState().go({ name: "settings" })}>Open settings</button>}
-        />
-      ) : results.error ? (
+      {results.error ? (
         <Empty pose="oops" title="Search failed" body={String(results.error)} />
       ) : (
         <>

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, ChevronLeft, Copy, FolderOpen, MoreHorizontal, Search, Trash2, Wrench } from "lucide-react";
+import { CrashBanner } from "../components/CrashDoctor";
+import { SavePointsTab } from "../components/SavePoints";
+import { ExportDialog } from "../components/ExportDialog";
+import { ArrowDownToLine, ChevronLeft, Copy, FolderOpen, MoreHorizontal, PackageOpen, Search, Trash2, Wrench } from "lucide-react";
 import { InstanceIcon } from "../components/Art";
 import { Ori } from "../components/ori/Ori";
 import { PlayButton } from "../components/PlayButton";
@@ -14,7 +17,7 @@ import { MemorySlider } from "../components/MemorySlider";
 import { toastError, useStore } from "../lib/store";
 import type { Instance } from "../lib/types";
 
-export function InstancePage({ id, tab = "content" }: { id: string; tab?: "content" | "logs" | "settings" }) {
+export function InstancePage({ id, tab = "content" }: { id: string; tab?: "content" | "savepoints" | "logs" | "settings" }) {
   const { data: instance, error } = useInstance(id);
   const go = useStore((s) => s.go);
   const back = useStore((s) => s.back);
@@ -53,12 +56,16 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
           <MoreMenu instance={instance} />
           <PlayButton instance={instance} size="md" />
         </div>
+        <div className="mt-4 empty:hidden">
+          <CrashBanner instanceId={instance.id} />
+        </div>
         <div className="mt-5">
           <Tabs
             value={tab}
             onChange={setTab}
             options={[
               { value: "content", label: "Content" },
+              { value: "savepoints", label: "Save points" },
               { value: "logs", label: "Logs" },
               { value: "settings", label: "Settings" },
             ]}
@@ -67,6 +74,7 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "content" && <ContentTab instance={instance} />}
+        {tab === "savepoints" && <SavePointsTab instance={instance} />}
         {tab === "logs" && <LogsTab instance={instance} />}
         {tab === "settings" && <SettingsTab instance={instance} />}
       </div>
@@ -117,6 +125,7 @@ function EditableIcon({ instance }: { instance: Instance }) {
 
 function MoreMenu({ instance }: { instance: Instance }) {
   const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const go = useStore((s) => s.go);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -132,6 +141,7 @@ function MoreMenu({ instance }: { instance: Instance }) {
   };
   const items = [
     { label: "Open folder", icon: FolderOpen, run: run(() => api.openFolder(instance.id)) },
+    { label: "Export as modpack", icon: PackageOpen, run: () => (setOpen(false), setExporting(true)) },
     { label: "Duplicate", icon: Copy, run: run(() => api.duplicateInstance(instance.id, `${instance.name} copy`)) },
     {
       label: "Repair files",
@@ -166,6 +176,7 @@ function MoreMenu({ instance }: { instance: Instance }) {
           ))}
         </div>
       )}
+      <ExportDialog instance={instance} open={exporting} onClose={() => setExporting(false)} />
     </div>
   );
 }

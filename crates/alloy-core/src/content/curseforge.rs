@@ -1,5 +1,6 @@
-//! CurseForge Core API. Every call needs your own key from console.curseforge.com
-//! (Settings → Accounts & APIs).
+//! CurseForge Core API. With a key in Settings (or one built in) Alloy calls CurseForge
+//! directly; otherwise it goes through the AlloyMC server's proxy at
+//! api.alloymc.dev/v1/curseforge, which adds the server's key and caches answers for everyone.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -172,22 +173,63 @@ pub fn builtin_key() -> Option<&'static str> {
     option_env!("ALLOY_CURSEFORGE_KEY").filter(|k| !k.trim().is_empty())
 }
 
-/// Whether CurseForge calls can work at all (a key in Settings or built in).
-pub async fn has_key(launcher: &Launcher) -> bool {
-    key(launcher).await.is_ok()
+/// Whether CurseForge calls can work at all. Always, now that the AlloyMC server proxies
+/// them for builds without a key; kept so callers read the same.
+pub async fn has_key(_launcher: &Launcher) -> bool {
+    true
 }
 
-/// The key from Settings, else the one built into this build.
-async fn key(launcher: &Launcher) -> Result<String> {
-    launcher
-        .settings
-        .read()
-        .await
-        .curseforge_api_key
-        .clone()
-        .filter(|k| !k.trim().is_empty())
-        .or_else(|| builtin_key().map(str::to_string))
-        .ok_or_else(|| Error::other("CurseForge support is a work in progress"))
+/// Where CurseForge calls go: CurseForge itself with a key, or the AlloyMC proxy.
+struct Api {
+    base: String,
+    key: Option<String>,
+}
+
+impl Api {
+    async fn of(launcher: &Launcher) -> Api {
+        let own = launcher.settings.read().await.curseforge_api_key.clone().filter(|k| !k.trim().is_empty());
+        match own.or_else(|| builtin_key().map(str::to_string)) {
+            Some(key) => Api { base: API.to_string(), key: Some(key) },
+            None => Api { base: format!("{}/v1/curseforge", crate::alloymc::api_url()), key: None },
+        }
+    }
+
+    fn get(&self, launcher: &Launcher, path: &str) -> reqwest::RequestBuilder {
+        self.with_key(launcher.http.get(format!("{}/{path}", self.base)))
+    }
+
+    fn post(&self, launcher: &Launcher, path: &str) -> reqwest::RequestBuilder {
+        self.with_key(launcher.http.post(format!("{}/{path}", self.base)))
+    }
+
+    fn with_key(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match &self.key {
+            Some(k) => req.header("x-api-key", k),
+            None => req,
+        }
+    }
+}
+
+/// Sends a call and reads its JSON, turning the proxy's error answers into their message.
+async fn send<T: serde::de::DeserializeOwned>(req: reqwest::RequestBuilder) -> Result<T> {
+    let resp = req.send().await?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp.json().await?);
+    }
+    #[derive(Deserialize)]
+    struct Fail {
+        error: FailBody,
+    }
+    #[derive(Deserialize)]
+    struct FailBody {
+        message: String,
+    }
+    let body = resp.bytes().await.unwrap_or_default();
+    match serde_json::from_slice::<Fail>(&body) {
+        Ok(f) => Err(Error::other(format!("CurseForge: {}", f.error.message))),
+        Err(_) => Err(Error::other(format!("CurseForge answered {status}"))),
+    }
 }
 
 impl From<CfMod> for ContentHit {
@@ -212,7 +254,7 @@ impl From<CfMod> for ContentHit {
 }
 
 pub async fn search(launcher: &Launcher, q: &SearchQuery) -> Result<SearchPage> {
-    let key = key(launcher).await?;
+    let api = Api::of(launcher).await;
     let kind = q.kind.unwrap_or(ContentKind::Mod);
     let sort = match q.sort.as_deref() {
         Some("downloads") => "6",
@@ -238,16 +280,7 @@ pub async fn search(launcher: &Launcher, q: &SearchQuery) -> Result<SearchPage> 
             params.push(("modLoaderType", lt.to_string()));
         }
     }
-    let resp: Paged<Vec<CfMod>> = launcher
-        .http
-        .get(format!("{API}/mods/search"))
-        .header("x-api-key", key)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let resp: Paged<Vec<CfMod>> = send(api.get(launcher, "mods/search").query(&params)).await?;
     Ok(SearchPage {
         hits: resp.data.into_iter().map(Into::into).collect(),
         total: resp.pagination.total_count,
@@ -256,38 +289,28 @@ pub async fn search(launcher: &Launcher, q: &SearchQuery) -> Result<SearchPage> 
 }
 
 pub async fn get_mod(launcher: &Launcher, id: u64) -> Result<CfMod> {
-    let key = key(launcher).await?;
-    let r: Data<CfMod> =
-        launcher.http.get(format!("{API}/mods/{id}")).header("x-api-key", key).send().await?.error_for_status()?.json().await?;
+    let api = Api::of(launcher).await;
+    let r: Data<CfMod> = send(api.get(launcher, &format!("mods/{id}"))).await?;
     Ok(r.data)
 }
 
 pub async fn mod_files(launcher: &Launcher, id: u64, game_version: Option<&str>, loader: Option<Loader>) -> Result<Vec<CfFile>> {
-    let key = key(launcher).await?;
-    let mut req = launcher.http.get(format!("{API}/mods/{id}/files")).header("x-api-key", key).query(&[("pageSize", "50")]);
+    let api = Api::of(launcher).await;
+    let mut req = api.get(launcher, &format!("mods/{id}/files")).query(&[("pageSize", "50")]);
     if let Some(v) = game_version {
         req = req.query(&[("gameVersion", v)]);
     }
     if let Some(lt) = loader.and_then(loader_type) {
         req = req.query(&[("modLoaderType", lt.to_string())]);
     }
-    let r: Data<Vec<CfFile>> = req.send().await?.error_for_status()?.json().await?;
+    let r: Data<Vec<CfFile>> = send(req).await?;
     Ok(r.data)
 }
 
 /// Batch file lookup, used for CurseForge modpack manifests.
 pub async fn files(launcher: &Launcher, file_ids: &[u64]) -> Result<Vec<CfFile>> {
-    let key = key(launcher).await?;
-    let r: Data<Vec<CfFile>> = launcher
-        .http
-        .post(format!("{API}/mods/files"))
-        .header("x-api-key", key)
-        .json(&json!({ "fileIds": file_ids }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let api = Api::of(launcher).await;
+    let r: Data<Vec<CfFile>> = send(api.post(launcher, "mods/files").json(&json!({ "fileIds": file_ids }))).await?;
     Ok(r.data)
 }
 
@@ -296,17 +319,8 @@ pub async fn mods(launcher: &Launcher, ids: &[u64]) -> Result<Vec<CfMod>> {
     if ids.is_empty() {
         return Ok(vec![]);
     }
-    let key = key(launcher).await?;
-    let r: Data<Vec<CfMod>> = launcher
-        .http
-        .post(format!("{API}/mods"))
-        .header("x-api-key", key)
-        .json(&json!({ "modIds": ids }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let api = Api::of(launcher).await;
+    let r: Data<Vec<CfMod>> = send(api.post(launcher, "mods").json(&json!({ "modIds": ids }))).await?;
     Ok(r.data)
 }
 
@@ -327,66 +341,33 @@ pub async fn match_fingerprints(launcher: &Launcher, fingerprints: &[u32]) -> Re
     if fingerprints.is_empty() {
         return Ok(vec![]);
     }
-    let key = key(launcher).await?;
-    let r: Data<FingerprintResult> = launcher
-        .http
-        .post(format!("{API}/fingerprints/{MINECRAFT_GAME_ID}"))
-        .header("x-api-key", key)
-        .json(&json!({ "fingerprints": fingerprints }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let api = Api::of(launcher).await;
+    let r: Data<FingerprintResult> =
+        send(api.post(launcher, &format!("fingerprints/{MINECRAFT_GAME_ID}")).json(&json!({ "fingerprints": fingerprints }))).await?;
     Ok(r.data.exact_matches.into_iter().map(|m| m.file).collect())
 }
 
 /// Looks a project up by its URL slug.
 pub async fn mod_by_slug(launcher: &Launcher, slug: &str, kind: Option<ContentKind>) -> Result<Option<CfMod>> {
-    let key = key(launcher).await?;
+    let api = Api::of(launcher).await;
     let mut params: Vec<(&str, String)> = vec![("gameId", MINECRAFT_GAME_ID.to_string()), ("slug", slug.to_string())];
     if let Some(k) = kind {
         params.push(("classId", class_id(k).to_string()));
     }
-    let r: Paged<Vec<CfMod>> = launcher
-        .http
-        .get(format!("{API}/mods/search"))
-        .header("x-api-key", key)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let r: Paged<Vec<CfMod>> = send(api.get(launcher, "mods/search").query(&params)).await?;
     Ok(r.data.into_iter().find(|m| m.slug == slug))
 }
 
 pub async fn file(launcher: &Launcher, mod_id: u64, file_id: u64) -> Result<CfFile> {
-    let key = key(launcher).await?;
-    let r: Data<CfFile> = launcher
-        .http
-        .get(format!("{API}/mods/{mod_id}/files/{file_id}"))
-        .header("x-api-key", key)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let api = Api::of(launcher).await;
+    let r: Data<CfFile> = send(api.get(launcher, &format!("mods/{mod_id}/files/{file_id}"))).await?;
     Ok(r.data)
 }
 
 /// A mod's description as HTML.
 pub async fn description(launcher: &Launcher, mod_id: u64) -> Result<String> {
-    let key = key(launcher).await?;
-    let r: Data<String> = launcher
-        .http
-        .get(format!("{API}/mods/{mod_id}/description"))
-        .header("x-api-key", key)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let api = Api::of(launcher).await;
+    let r: Data<String> = send(api.get(launcher, &format!("mods/{mod_id}/description"))).await?;
     Ok(r.data)
 }
 

@@ -30,6 +30,17 @@ async fn hash_file<D: Digest>(path: &Path) -> Result<String> {
 
 /// Joins a relative path from untrusted data (modpack index, zip entry) onto `base`,
 /// refusing absolute paths and `..` so nothing escapes the instance folder.
+/// Writes a file so readers never see half of it: a temporary file next to it, then a rename.
+pub async fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        tokio::fs::create_dir_all(dir).await?;
+    }
+    let tmp = path.with_extension("tmp");
+    tokio::fs::write(&tmp, bytes).await?;
+    tokio::fs::rename(&tmp, path).await?;
+    Ok(())
+}
+
 pub fn safe_join(base: &Path, relative: &str) -> Result<PathBuf> {
     let rel = Path::new(relative);
     let mut out = base.to_path_buf();

@@ -1,3 +1,6 @@
+mod alloymc;
+mod doctor;
+mod packs;
 mod commands;
 mod content;
 mod jobs;
@@ -66,9 +69,13 @@ pub fn run() {
         .setup(|app| {
             let launcher = tauri::async_runtime::block_on(Launcher::open(data_dirs()))?;
             let file_store = FileSecretStore::new(launcher.dirs.root().join("secrets.json"));
-            let accounts = Accounts::new(launcher.clone(), Arc::new(secrets::KeyringStore::new(file_store)));
-            app.manage(state::AppState::new(launcher.clone(), accounts));
+            let secret_store: Arc<dyn alloy_core::auth::SecretStore> = Arc::new(secrets::KeyringStore::new(file_store));
+            let accounts = Accounts::new(launcher.clone(), secret_store.clone());
+            let alloymc = alloy_core::alloymc::AlloyMc::new(launcher.clone(), secret_store);
+            app.manage(state::AppState::new(launcher.clone(), accounts, alloymc));
+            app.manage(alloymc::SignIn::default());
             app.manage(jobs::Jobs::default());
+            doctor::recover_on_start(launcher.clone());
             jobs::start_speed_meter(app.handle().clone());
             content::start_blocked_watcher(app.handle().clone());
 
@@ -125,6 +132,12 @@ pub fn run() {
             commands::login_microsoft,
             commands::remove_account,
             commands::set_active_account,
+            alloymc::alloymc_profile,
+            alloymc::alloymc_sign_in,
+            alloymc::alloymc_cancel_sign_in,
+            alloymc::alloymc_sign_out,
+            alloymc::alloymc_link_minecraft,
+            alloymc::alloymc_unlink_minecraft,
             content::search_content,
             content::modrinth_project,
             content::modrinth_versions,
@@ -158,6 +171,20 @@ pub fn run() {
             content::memory_advice,
             content::list_jobs,
             content::cancel_job,
+            doctor::crash_last,
+            doctor::crash_dismiss,
+            doctor::crash_apply_fix,
+            doctor::bisect_start,
+            packs::savepoints,
+            packs::savepoint_create,
+            packs::savepoint_restore,
+            packs::savepoint_rename,
+            packs::savepoint_delete,
+            packs::export_candidates,
+            packs::export_instance,
+            packs::import_discover,
+            packs::import_inspect,
+            packs::import_instance,
             content::clear_jobs,
             content::retry_job,
             updater::check_updates,

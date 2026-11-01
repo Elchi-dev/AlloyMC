@@ -56,11 +56,7 @@ pub struct FoundUpdate {
 
 /// This build's platform id, matching `manifest.platform`.
 pub fn platform() -> String {
-    let os = match std::env::consts::OS {
-        "macos" => "macos",
-        other => other,
-    };
-    format!("{os}-{}", std::env::consts::ARCH)
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 fn verify_sig(public_key_b64: &str, data: &[u8], sig_file: &[u8], what: &str) -> Result<()> {
@@ -146,7 +142,7 @@ pub fn scan(dirs: &[PathBuf], current_version: &str) -> Option<FoundUpdate> {
             }
             match inspect(&path, current_version) {
                 Ok(found) if found.newer => {
-                    if best.as_ref().map_or(true, |b| compare(&found.manifest.version, &b.manifest.version).is_gt()) {
+                    if best.as_ref().is_none_or(|b| compare(&found.manifest.version, &b.manifest.version).is_gt()) {
                         best = Some(found);
                     }
                 }

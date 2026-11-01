@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0
+
+Alloy and AlloyMC meet: sign in, link Minecraft, CurseForge without a key. Plus a crash
+doctor, save points, modpack export and imports from other launchers. Installs as a
+one-click update from 0.2.x.
+
+- **Sign in to AlloyMC.** The account menu and Settings have an optional AlloyMC sign-in.
+  It opens your own browser, so Google and saved passwords work, and comes back to Alloy
+  by itself. Alloy shows your profile and keeps working offline with what it last saw.
+- **Link your Minecraft accounts.** Any Microsoft account in Alloy links to your AlloyMC
+  profile in one click: Alloy proves you own it through Mojang's session server, the same
+  check a multiplayer server does. Unlink them in Settings.
+- **The crash doctor.** When the game crashes, Alloy reads the crash report, the log and
+  any JVM error file and says what happened in plain words: which mod it points at and
+  how sure it is (the loader naming it, a failed mixin, its code at the top of the crash),
+  or that memory ran out, the wrong Java was used or the graphics driver crashed. One
+  click turns the mod off, gives the game more memory or switches Java. An instance's
+  page shows its last crash until it's dealt with.
+- **Find the mod by testing.** When nothing points at one mod, Alloy starts the game with
+  halves of the mods turned off (each mod brings what it requires) and closes it at the
+  title screen, until one mod is left: about log2(mods) + 1 starts. Crashes that take two
+  mods together are found too. Your mods are put back afterwards, even if Alloy is closed
+  halfway.
+- **Save points.** A copy of an instance's mods, configs, resource packs, shaders and
+  settings, to go back to with one click. Alloy makes one before updating mods and before
+  a crash doctor fix, and before going back, so that can be undone too. Worlds aren't
+  included. Files are stored once across all save points, so they take little space.
+- **Export as a modpack.** Any instance becomes a Modrinth `.mrpack` or a CurseForge
+  `.zip`. Mods the platform knows are listed by reference (Modrinth by SHA-1, CurseForge
+  by fingerprint), so packs stay small; anything else is bundled, and Alloy names those
+  files so you can check their licences before sharing.
+- **Import from other launchers.** Alloy finds instances of Prism Launcher, MultiMC, the
+  CurseForge App and the Modrinth App where they live (or in a folder you choose), reads
+  their version, loader and memory setting, and copies them over with their worlds. The
+  originals stay as they are.
+- **CurseForge for everyone.** Search, installs, updates and CurseForge modpacks work in
+  every build without a key of your own. Alloy asks the AlloyMC server, which holds the key
+  and caches answers for everyone. A key in Settings still makes Alloy call CurseForge
+  directly.
+
 ## 0.2.1
 
 Fixes from the first days of 0.2. Installs as a one-click update from 0.2.0 or 0.1.0.

@@ -97,13 +97,16 @@ Set `ALLOY_DATA_DIR` to keep test data away from your real library.
 
 | Area | Today |
 | --- | --- |
-| Accounts | Microsoft sign-in in a small window (official launcher client ID, no Azure setup); offline accounts; tokens in the OS keychain |
+| Accounts | Microsoft sign-in in a small window (official launcher client ID, no Azure setup); offline accounts; tokens in the OS keychain; optional AlloyMC account with your Minecraft accounts linked to your profile |
 | Loaders | Vanilla incl. 26.x, Fabric, Quilt, Forge and NeoForge from their official installers (Forge back to 1.6); patched jars shared between instances |
 | Instances | Create, duplicate, rename, groups, repair, trash, right-click menu; icons from any image or a block; memory up to what your PC can spare |
 | Check before launch | Missing or wrong-version dependencies, wrong loader, game or Java, duplicates, incompatibilities, with one-click fixes ([docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)) |
 | Content | Install with every dependency, update all safely, enable, disable, remove; files you added by hand are identified on Modrinth and CurseForge; `alloy.lock` per instance |
-| Discover | Modrinth and CurseForge search, project pages with gallery, versions and dependencies, "Install into…"; paste a link; drop files on the window |
-| Modpacks | `.mrpack` and CurseForge `.zip` from a file, URL or Discover; files a pack lists but couldn't ship are fetched; CurseForge-only files picked up from Downloads |
+| Discover | Modrinth and CurseForge search (CurseForge through the AlloyMC server, no key needed), project pages with gallery, versions and dependencies, "Install into…"; paste a link; drop files on the window |
+| Modpacks | `.mrpack` and CurseForge `.zip` from a file, URL or Discover; files a pack lists but couldn't ship are fetched; CurseForge-only files picked up from Downloads; export any instance as either, with files listed by reference |
+| Other launchers | Instances from Prism Launcher, MultiMC, the CurseForge App and the Modrinth App, found where they live and copied over with their worlds |
+| Crash doctor | Says why the game crashed and which mod it points at, with one-click fixes; finds the mod by testing when nothing points at one |
+| Save points | A copy of an instance's mods, configs and settings to go back to; made automatically before updates; files stored once |
 | Downloads | One panel for every job: progress, speed, cancel, retry |
 | Updates | Signed `.alloyupdate` files, verified and applied with one click, settings backed up first |
 | Game | Mojang's Java runtimes, installed per version; live log with levels and search; stop; play time |
@@ -112,7 +115,7 @@ Set `ALLOY_DATA_DIR` to keep test data away from your real library.
 ## Planned
 
 Warm standby for instant starts
-([docs/STANDBY.md](docs/STANDBY.md)), Alloy accounts and social
+([docs/STANDBY.md](docs/STANDBY.md)), sync and social on AlloyMC
 ([docs/SERVER.md](docs/SERVER.md)), and the Claude assistant. The full list is in
 [docs/ROADMAP.md](docs/ROADMAP.md).
 

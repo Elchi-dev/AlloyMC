@@ -513,6 +513,8 @@ pub async fn apply_content_updates(app: AppHandle, instance_id: String, updates:
         async move {
             let state = a.state::<AppState>();
             let inst = instance::get(&state.launcher, &i).await?;
+            let label = if n == 1 { "Before updating 1 file".to_string() } else { format!("Before updating {n} files") };
+            crate::packs::auto_savepoint(&a, &inst, &label).await;
             manage::apply_updates(&state.launcher, &inst, updates).await
         },
     )

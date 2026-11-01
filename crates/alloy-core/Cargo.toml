@@ -29,6 +29,8 @@ minisign-verify = "0.3"
 semver = "1"
 toml = "0.8"
 percent-encoding = "2"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

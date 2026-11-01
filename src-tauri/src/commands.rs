@@ -124,7 +124,7 @@ pub struct AppInfo {
     version: String,
     data_dir: PathBuf,
     os: String,
-    /// Private builds carry a CurseForge key; public builds show CurseForge as work in progress.
+    /// Private builds carry a CurseForge key; public builds use the AlloyMC proxy.
     curseforge_builtin: bool,
 }
 
@@ -302,6 +302,9 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     if state.running.lock().unwrap().contains_key(&id) {
         return Err(Error::other("Already running"));
     }
+    if state.bisecting.lock().unwrap().contains(&id) {
+        return Err(Error::other("The crash doctor is testing this instance. Wait for it, or cancel it in Downloads."));
+    }
     game_state(&app, &id, "starting", None, None);
     let result = launch_inner(&app, &state, &id, quick_play).await;
     if let Err(e) = &result {
@@ -339,9 +342,19 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
 
     let log_app = app.clone();
     let log_id = id.to_string();
+    // The last lines, for the crash doctor.
+    let tail: Arc<Mutex<std::collections::VecDeque<String>>> = Arc::default();
+    let keep = tail.clone();
     let mut child = launch::spawn(
         &cmd,
         Arc::new(move |line| {
+            {
+                let mut t = keep.lock().unwrap();
+                if t.len() >= crate::doctor::KEEP_LINES {
+                    t.pop_front();
+                }
+                t.push_back(line.line.clone());
+            }
             let _ = log_app.emit("game-log", serde_json::json!({ "instanceId": log_id, "stream": line.stream, "line": line.line }));
         }),
     )?;
@@ -371,17 +384,25 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
     let app2 = app.clone();
     let id2 = id.to_string();
     tauri::async_runtime::spawn(async move {
+        let mut stopped = false;
         let status = tokio::select! {
             s = child.wait() => s.ok(),
-            _ = kill_rx => { let _ = child.kill().await; child.wait().await.ok() }
+            _ = kill_rx => { stopped = true; let _ = child.kill().await; child.wait().await.ok() }
         };
         let state = app2.state::<AppState>();
         let started = state.running.lock().unwrap().remove(&id2).map(|r| r.started_at).unwrap_or(started);
-        if let Ok(mut inst) = instance::get(&state.launcher, &id2).await {
+        let code = status.and_then(|s| s.code());
+        let inst = instance::get(&state.launcher, &id2).await.ok();
+        if let Some(mut inst) = inst.clone() {
             inst.play_time_secs += (chrono::Utc::now().timestamp() - started).max(0) as u64;
             let _ = inst.save(&state.launcher).await;
         }
-        game_state(&app2, &id2, "exited", status.and_then(|s| s.code()), None);
+        // Stopped by the player isn't a crash. On Unix a signal leaves no code; -1 says "no code".
+        if let (Some(inst), false) = (&inst, stopped) {
+            let lines: Vec<String> = tail.lock().unwrap().drain(..).collect();
+            crate::doctor::after_exit(&app2, inst, started, Some(code.unwrap_or(-1)), lines).await;
+        }
+        game_state(&app2, &id2, "exited", code, None);
         changed(&app2, "instances-changed");
         if let Some(main) = app2.get_webview_window("main") {
             let _ = main.show();

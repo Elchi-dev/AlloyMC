@@ -3,15 +3,21 @@ import { QueryClient, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { listen } from "./bus";
 import { useStore, type LogLine } from "./store";
-import type { GameStateEvent, Job, Progress } from "./types";
+import type { GameStateEvent, Job, Progress, BisectFound, BisectStep, Diagnosis } from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 } },
 });
 
 export const useInstances = () => useQuery({ queryKey: ["instances"], queryFn: api.instances });
-export const useInstance = (id: string) => useQuery({ queryKey: ["instances", id], queryFn: () => api.instance(id) });
+export const useInstance = (id: string) => useQuery({ queryKey: ["instances", id], queryFn: () => api.instance(id), enabled: !!id });
 export const useAccounts = () => useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+/** The AlloyMC account: the cached profile at once, then the server's answer. */
+export const useAlloyMc = () => {
+  const cached = useQuery({ queryKey: ["alloymc", "cached"], queryFn: () => api.alloymcProfile(false), staleTime: Infinity });
+  const live = useQuery({ queryKey: ["alloymc", "live"], queryFn: () => api.alloymcProfile(true), staleTime: 300_000, retry: false });
+  return { profile: live.isSuccess ? live.data : cached.data ?? null, loading: !cached.isFetched };
+};
 export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
 export const useOverview = (id: string) =>
   useQuery({ queryKey: ["content", id], queryFn: () => api.overview(id), staleTime: 5_000 });
@@ -61,6 +67,7 @@ export function useBackendEvents() {
       ),
       listen("instances-changed", () => queryClient.invalidateQueries({ queryKey: ["instances"] })),
       listen("accounts-changed", () => queryClient.invalidateQueries({ queryKey: ["accounts"] })),
+      listen("alloymc-changed", () => queryClient.invalidateQueries({ queryKey: ["alloymc"] })),
       listen("content-changed", () => {
         queryClient.invalidateQueries({ queryKey: ["content"] });
         queryClient.invalidateQueries({ queryKey: ["contentUpdates"] });
@@ -78,7 +85,10 @@ export function useBackendEvents() {
           s().setGame(e.instanceId, undefined);
           s().clearProgress(e.instanceId);
           if (e.error) s().toast({ kind: "error", text: e.error });
-          else if (e.exitCode && e.exitCode !== 0) {
+          // The crash doctor's dialog already says what happened.
+          else if (s().crash?.instanceId === e.instanceId) {
+            /* nothing */
+          } else if (e.exitCode && e.exitCode !== 0) {
             s().toast({
               kind: "error",
               text: `The game crashed (exit code ${e.exitCode}).`,
@@ -89,6 +99,16 @@ export function useBackendEvents() {
           if (e.state === "starting") s().clearLogs(e.instanceId);
           s().setGame(e.instanceId, e.state);
         }
+      }),
+      listen("savepoints-changed", () => queryClient.invalidateQueries({ queryKey: ["savepoints"] })),
+      listen("crash-diagnosis", (e: { instanceId: string; diagnosis: Diagnosis }) => {
+        s().setCrash(e);
+        queryClient.invalidateQueries({ queryKey: ["crash", e.instanceId] });
+      }),
+      listen("bisect-progress", (e: { instanceId: string; step?: BisectStep; found?: BisectFound; error?: string }) => {
+        const running = !e.found && !e.error;
+        s().setBisect(e.instanceId, { ...s().bisect[e.instanceId], ...e, running });
+        if (!running) queryClient.invalidateQueries({ queryKey: ["content"] });
       }),
       listen("game-log", (e: { instanceId: string; stream: "stdout" | "stderr"; line: string }) => {
         const parsed = parseLine(e.instanceId, e.stream, e.line);

@@ -4,7 +4,10 @@ Each phase ends when its gate works on a real machine (Windows and Arch).
 
 ## Open right now
 
-- Google sign-in for Alloy accounts waits for a domain and a privacy notice.
+- **Alloy 0.3**, in this order: AlloyMC sign-in and Minecraft linking (done), CurseForge
+  for everyone through the server (done), the crash doctor with auto-bisect (done), then save points and
+  export/import (.mrpack, CurseForge zip; from Prism, MultiMC, the CurseForge App and the
+  Modrinth App) (done). Then the release.
 - Releases move to the server once it runs: CI publishes to it with `SERVER_SECRET` (HMAC,
   the secret never travels), and Alloy checks the server for updates. Update files stay
   signed with the release key, so a compromised server cannot ship code.

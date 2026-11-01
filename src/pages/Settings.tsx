@@ -2,7 +2,7 @@ import { MemorySlider } from "../components/MemorySlider";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { useSettings } from "../lib/queries";
+import { useAlloyMc, useSettings } from "../lib/queries";
 import { queryClient } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
 import type { Settings } from "../lib/types";
@@ -81,12 +81,14 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Services" index={2}>
+      <AlloyMcSection />
+
+      <Section title="Services" index={3}>
         <Row
           label="CurseForge API key"
-          hint={info.data?.curseforgeBuiltin ? "This build has a key built in. Paste another one here to override it." : "CurseForge is a work in progress and arrives with the Alloy server. Paste your own key from console.curseforge.com to try it now."}
+          hint={info.data?.curseforgeBuiltin ? "This build has a key built in. Paste another one here to override it." : "Optional. Without one, CurseForge works through the AlloyMC server, which holds the key and caches answers. With your own key from console.curseforge.com, Alloy calls CurseForge directly."}
         >
-          <input type="password" className="field font-mono text-[12px]" placeholder={info.data?.curseforgeBuiltin ? "Built-in key" : "Your key"} value={draft.curseforgeApiKey ?? ""} onChange={(e) => set("curseforgeApiKey", e.target.value || null)} />
+          <input type="password" className="field font-mono text-[12px]" placeholder={info.data?.curseforgeBuiltin ? "Built-in key" : "Through AlloyMC (default)"} value={draft.curseforgeApiKey ?? ""} onChange={(e) => set("curseforgeApiKey", e.target.value || null)} />
         </Row>
         <Row label="Microsoft client ID" hint="Leave empty to sign in like the official launcher. Set your own Azure app ID only if sign-in ever stops working.">
           <input className="field font-mono text-[12px]" placeholder="Official launcher (default)" value={draft.customMsaClientId ?? ""} onChange={(e) => set("customMsaClientId", e.target.value || null)} />
@@ -95,7 +97,7 @@ export function SettingsPage() {
 
       <UpdatesSection version={info.data?.version} />
 
-      <Section title="About" index={4}>
+      <Section title="About" index={5}>
         <Row label="Version">
           <span className="block pt-2 text-ink-2">{info.data?.version}</span>
         </Row>
@@ -109,6 +111,63 @@ export function SettingsPage() {
         <button className="btn btn-gold" disabled={!dirty} onClick={save}>Save changes</button>
       </div>
     </div>
+  );
+}
+
+function AlloyMcSection() {
+  const { profile } = useAlloyMc();
+  const [busy, setBusy] = useState<string | null>(null);
+  const run = async (key: string, f: () => Promise<unknown>) => {
+    setBusy(key);
+    try {
+      await f();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="AlloyMC account" index={2}>
+      {!profile ? (
+        <Row label="Account" hint="Optional. Alloy works the same without one. Signing in opens your browser, so Google and saved passwords just work.">
+          <div className="flex gap-2">
+            <button className="btn btn-gold" disabled={busy === "in"} onClick={() => run("in", api.alloymcSignIn)}>
+              {busy === "in" ? "Finish in your browser…" : "Sign in to AlloyMC"}
+            </button>
+            {busy === "in" && <button className="btn btn-quiet" onClick={() => api.alloymcCancelSignIn()}>Cancel</button>}
+          </div>
+        </Row>
+      ) : (
+        <>
+          <Row label="Signed in as">
+            <div className="flex items-center gap-3 pt-1">
+              <span className="text-ink">{profile.displayName}</span>
+              <span className="text-[12px] text-ink-3">@{profile.handle}</span>
+              <button className="btn btn-quiet ml-auto" disabled={busy === "out"} onClick={() => run("out", api.alloymcSignOut)}>Sign out</button>
+            </div>
+          </Row>
+          <Row label="Minecraft accounts" hint="Linked accounts show on your profile. Link more from the account menu at the top right.">
+            {profile.minecraft.length === 0 ? (
+              <span className="block pt-2 text-ink-3">None linked yet.</span>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {profile.minecraft.map((m) => (
+                  <li key={m.uuid} className="flex items-center gap-3 rounded-[8px] bg-slate-900/60 px-3 py-2">
+                    {m.headUrl ? <img src={m.headUrl} alt="" width={20} height={20} className="rounded-[3px] bg-slate-800 [image-rendering:pixelated]" /> : <span className="h-5 w-5 rounded-[3px] bg-slate-800" />}
+                    <span className="text-ink">{m.name}</span>
+                    {!m.shown && <span className="text-[12px] text-ink-3">Hidden on profile</span>}
+                    <button className="btn btn-quiet ml-auto" disabled={busy === m.uuid} onClick={() => run(m.uuid, () => api.alloymcUnlink(m.uuid))} aria-label={`Unlink ${m.name}`}>
+                      Unlink
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Row>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -146,7 +205,7 @@ function UpdatesSection({ version }: { version?: string }) {
     }
   };
   return (
-    <Section title="Updates" index={3}>
+    <Section title="Updates" index={4}>
       <Row label="Installed" hint="Alloy looks for .alloyupdate files in your Downloads folder whenever it opens or regains focus. You can also drop one onto the window.">
         <span className="block pt-2 text-ink-2">Alloy {version}</span>
       </Row>

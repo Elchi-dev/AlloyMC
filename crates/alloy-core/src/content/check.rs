@@ -485,6 +485,7 @@ mod tests {
                 }],
                 nested: vec![],
                 loads_fabric_mods: false,
+                packages: vec![],
             }),
             index: None,
         }

@@ -6,6 +6,7 @@ import { Rail, TitleBar } from "./components/Chrome";
 import { CreateInstanceDialog } from "./components/CreateInstance";
 import { DropOverlay, useFileDrop } from "./components/Drop";
 import { PreflightDialog } from "./components/Problems";
+import { CrashDoctorDialog } from "./components/CrashDoctor";
 import { Toasts } from "./components/ui";
 import { useUpdates } from "./components/Updates";
 import { api, isTauri } from "./lib/api";
@@ -167,6 +168,7 @@ export default function App() {
       </div>
       <CreateInstanceDialog />
       <PreflightDialog />
+      <CrashDoctorDialog />
       <DropOverlay />
       <Toasts />
     </div>

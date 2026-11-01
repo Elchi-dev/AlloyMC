@@ -137,7 +137,7 @@ pub async fn list(launcher: &Launcher) -> Result<Vec<Instance>> {
             Err(_) => continue,
         }
     }
-    out.sort_by(|a, b| b.last_played.unwrap_or(b.created_at).cmp(&a.last_played.unwrap_or(a.created_at)));
+    out.sort_by_key(|i| std::cmp::Reverse(i.last_played.unwrap_or(i.created_at)));
     Ok(out)
 }
 
@@ -206,6 +206,11 @@ pub async fn trash(launcher: &Launcher, id: &str) -> Result<()> {
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
     let to = launcher.dirs.trash().join(format!("{id}-{stamp}"));
     tokio::fs::rename(&from, &to).await?;
+    // Its save points go with it, so a new instance with the same name starts without them.
+    let points = launcher.dirs.root().join("savepoints").join("instances");
+    if points.join(id).exists() {
+        let _ = tokio::fs::rename(points.join(id), points.join(format!("{id}-{stamp}"))).await;
+    }
     Ok(())
 }
 

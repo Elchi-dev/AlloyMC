@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Compass, Home, LayoutGrid, LogIn, Minus, Plus, Settings, Square, Trash2, UserRound, X } from "lucide-react";
+import { Check, Compass, ExternalLink, Home, LayoutGrid, Link2, LogIn, LogOut, Minus, Plus, Settings, Square, Trash2, UserRound, X } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri } from "../lib/api";
-import { useAccounts } from "../lib/queries";
+import { useAccounts, useAlloyMc } from "../lib/queries";
+import type { AlloyProfile } from "../lib/types";
 import { toastError, useStore, type Page } from "../lib/store";
 import { PlayerHead } from "./Art";
 import { Logo } from "./Logo";
@@ -126,6 +128,21 @@ function AccountMenu() {
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const active = data?.accounts.find((a) => a.id === data.active);
+  const { profile } = useAlloyMc();
+  const [linking, setLinking] = useState<string | null>(null);
+  const linked = new Set(profile?.minecraft.map((m) => m.uuid.replace(/-/g, "")) ?? []);
+
+  const link = async (id: string, name: string) => {
+    setLinking(id);
+    try {
+      await api.alloymcLink(id);
+      useStore.getState().toast({ kind: "success", text: `${name} is on your AlloyMC profile now` });
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setLinking(null);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -181,6 +198,8 @@ function AccountMenu() {
             transition={{ duration: 0.14 }}
             className="absolute bottom-0 left-[56px] z-50 w-72 origin-bottom-left rounded-[10px] border border-line bg-slate-850 p-1.5 shadow-2xl shadow-black/50"
           >
+            <AlloyMcCard profile={profile ?? null} />
+            <div className="mx-2 my-1.5 h-px bg-line-soft" />
             {data?.accounts.map((a) => (
               <div key={a.id} className="group flex items-center rounded-[7px] hover:bg-slate-800">
                 <button
@@ -196,6 +215,23 @@ function AccountMenu() {
                   </span>
                   {a.id === data.active && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-gold" aria-label="Active" />}
                 </button>
+                {profile && a.kind === "microsoft" && !a.needsLogin && (
+                  linked.has(a.id) ? (
+                    <span className="mr-1 grid h-7 w-7 place-items-center text-grass" title="On your AlloyMC profile" aria-label={`${a.username} is linked to AlloyMC`}>
+                      <Check size={14} />
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => link(a.id, a.username)}
+                      disabled={linking === a.id}
+                      aria-label={`Link ${a.username} to your AlloyMC profile`}
+                      title="Show this account on your AlloyMC profile"
+                      className="mr-1 grid h-7 place-items-center rounded-[6px] px-1.5 text-[12px] text-ink-3 transition-colors hover:bg-slate-700 hover:text-gold disabled:opacity-60"
+                    >
+                      {linking === a.id ? <span className="spinner h-3.5 w-3.5" /> : <span className="flex items-center gap-1"><Link2 size={13} /> Link</span>}
+                    </button>
+                  )
+                )}
                 <button
                   onClick={() => api.removeAccount(a.id).catch(toastError)}
                   aria-label={`Remove ${a.username}`}
@@ -225,6 +261,78 @@ function AccountMenu() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+const openExternal = (url: string) => (isTauri ? openUrl(url) : Promise.resolve(window.open(url, "_blank"))).catch(toastError);
+
+/** The AlloyMC account at the top of the account menu. */
+function AlloyMcCard({ profile }: { profile: AlloyProfile | null }) {
+  const [waiting, setWaiting] = useState(false);
+
+  const signIn = async () => {
+    setWaiting(true);
+    try {
+      const p = await api.alloymcSignIn();
+      useStore.getState().toast({ kind: "success", text: `Signed in to AlloyMC as @${p.handle}` });
+    } catch (e) {
+      if (!String(e).includes("cancelled")) toastError(e);
+    } finally {
+      setWaiting(false);
+    }
+  };
+
+  if (!profile) {
+    return (
+      <div className="rounded-[8px] border border-line-soft bg-slate-900/60 p-3">
+        <div className="flex items-center gap-2">
+          <Logo size={20} />
+          <span className="font-medium">AlloyMC account</span>
+          <span className="ml-auto text-[11px] text-ink-3">Optional</span>
+        </div>
+        <p className="mt-1.5 text-[12px] leading-snug text-ink-3">A profile at alloymc.dev with your skin and the people you follow. Alloy works the same without it.</p>
+        {waiting ? (
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="spinner h-4 w-4" />
+            <span className="flex-1 text-[12px] text-ink-2">Finish in your browser…</span>
+            <button className="btn h-7 px-2.5 text-[12px]" onClick={() => api.alloymcCancelSignIn()}>Cancel</button>
+          </div>
+        ) : (
+          <button onClick={signIn} className="btn mt-2.5 w-full justify-center">
+            <LogIn size={15} /> Sign in to AlloyMC
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-[8px] border border-line-soft bg-slate-900/60 p-2.5">
+      <div className="flex items-center gap-2.5">
+        <img src={`${profile.avatarUrl}${profile.avatarUrl.includes("?") ? "&" : "?"}s=96`} alt="" className="h-9 w-9 rounded-[7px] bg-slate-800 [image-rendering:pixelated]" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium">{profile.displayName}</span>
+          <span className="block truncate text-[12px] text-ink-3">
+            @{profile.handle} · {profile.followers} {profile.followers === 1 ? "follower" : "followers"}
+          </span>
+        </span>
+        <button
+          onClick={() => openExternal(profile.profileUrl)}
+          aria-label="Open your profile on alloymc.dev"
+          title="Open your profile"
+          className="grid h-7 w-7 place-items-center rounded-[6px] text-ink-3 transition-colors hover:bg-slate-700 hover:text-ink"
+        >
+          <ExternalLink size={14} />
+        </button>
+        <button
+          onClick={() => api.alloymcSignOut().catch(toastError)}
+          aria-label="Sign out of AlloyMC"
+          title="Sign out of AlloyMC"
+          className="grid h-7 w-7 place-items-center rounded-[6px] text-ink-3 transition-colors hover:bg-slate-700 hover:text-redstone"
+        >
+          <LogOut size={14} />
+        </button>
+      </div>
     </div>
   );
 }
