@@ -1,4 +1,5 @@
 mod alloymc;
+mod cfwindow;
 mod doctor;
 mod packs;
 mod commands;
@@ -74,9 +75,21 @@ pub fn run() {
             let alloymc = alloy_core::alloymc::AlloyMc::new(launcher.clone(), secret_store);
             app.manage(state::AppState::new(launcher.clone(), accounts, alloymc));
             app.manage(alloymc::SignIn::default());
+            app.manage(cfwindow::CfQueue::default());
             app.manage(jobs::Jobs::default());
             doctor::recover_on_start(launcher.clone());
             updater::start_auto(app.handle().clone());
+            // Development only: open the CurseForge window for an instance at start.
+            #[cfg(debug_assertions)]
+            if let Ok(id) = std::env::var("ALLOY_DEV_CURSEFORGE_WINDOW") {
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    if let Err(e) = cfwindow::open(&h, id).await {
+                        tracing::error!("dev CurseForge window: {e}");
+                    }
+                });
+            }
             jobs::start_speed_meter(app.handle().clone());
             content::start_blocked_watcher(app.handle().clone());
 
@@ -186,6 +199,8 @@ pub fn run() {
             packs::import_discover,
             packs::import_inspect,
             packs::import_instance,
+            packs::pack_source,
+            cfwindow::curseforge_window,
             content::clear_jobs,
             content::retry_job,
             updater::update_check_now,

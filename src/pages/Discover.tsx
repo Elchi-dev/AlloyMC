@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { hitMenu } from "../lib/menus";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Check, Download, Heart, Search } from "lucide-react";
 import { Empty, Segmented } from "../components/ui";
@@ -177,6 +178,16 @@ function ResultRow({ hit, instance, index }: { hit: ContentHit; instance?: Insta
       tabIndex={0}
       onClick={openPage}
       onKeyDown={(e) => e.key === "Enter" && openPage()}
+      onContextMenu={(e) =>
+        useStore.getState().openMenu(
+          e,
+          hitMenu(hit, {
+            open: openPage,
+            install: state === "idle" && (hit.kind === "modpack" || instance) ? () => install({ stopPropagation() {} } as React.MouseEvent) : undefined,
+            installLabel: hit.kind === "modpack" ? "Install as a new instance" : instance ? `Install into ${instance.name}` : undefined,
+          }),
+        )
+      }
       className="card rise group flex cursor-pointer items-center gap-4 rounded-[10px] p-3.5 pr-4"
       style={{ ["--i" as string]: Math.min(index, 16) } as React.CSSProperties}
     >

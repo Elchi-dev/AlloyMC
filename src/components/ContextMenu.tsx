@@ -3,7 +3,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ClipboardPaste, Copy, ExternalLink, Scissors, TextSelect } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { isTauri } from "../lib/api";
+import { useStore } from "../lib/store";
 
 export interface MenuItem {
   label: string;
@@ -108,4 +111,62 @@ export function ContextMenu({ at, items, onClose }: { at: { x: number; y: number
     </AnimatePresence>,
     document.body,
   );
+}
+
+/** The one right-click menu for the whole window. Components open it with
+ *  `useStore.getState().openMenu(e, items)`; anywhere else, text fields get cut, copy and
+ *  paste, selected text gets copy, links get open and copy, and nothing else gets the
+ *  browser's own menu (Reload and Inspect don't belong in an app). */
+export function GlobalMenu() {
+  const menu = useStore((s) => s.menu);
+  const close = useStore((s) => s.closeMenu);
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      const items = defaultItems(e.target as HTMLElement);
+      if (items.length) useStore.getState().openMenu(e, items);
+    };
+    document.addEventListener("contextmenu", onMenu);
+    return () => document.removeEventListener("contextmenu", onMenu);
+  }, []);
+  return <ContextMenu at={menu?.at ?? null} items={menu?.items ?? []} onClose={close} />;
+}
+
+const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+
+function defaultItems(target: HTMLElement): MenuItem[] {
+  const field = target.closest("input, textarea, [contenteditable='true']") as HTMLInputElement | HTMLTextAreaElement | HTMLElement | null;
+  const selected = window.getSelection()?.toString() ?? "";
+  if (field && !(field instanceof HTMLInputElement && ["checkbox", "radio", "range", "button", "submit"].includes(field.type))) {
+    const editable = !(field as HTMLInputElement).readOnly && !(field as HTMLInputElement).disabled;
+    const sel = "selectionStart" in field && field.selectionStart !== field.selectionEnd;
+    const keep = () => field.focus();
+    return [
+      { label: "Cut", icon: Scissors, disabled: !editable || !sel, run: () => (keep(), document.execCommand("cut")) },
+      { label: "Copy", icon: Copy, disabled: !sel && !selected, run: () => (keep(), document.execCommand("copy")) },
+      {
+        label: "Paste",
+        icon: ClipboardPaste,
+        disabled: !editable,
+        run: () =>
+          navigator.clipboard
+            .readText()
+            .then((t) => (keep(), document.execCommand("insertText", false, t)))
+            .catch(() => {}),
+      },
+      { separator: true, label: "" },
+      { label: "Select all", icon: TextSelect, run: () => (keep(), (field as HTMLInputElement).select?.() ?? document.execCommand("selectAll")) },
+    ];
+  }
+  const link = target.closest("a[href]") as HTMLAnchorElement | null;
+  const items: MenuItem[] = [];
+  if (selected.trim()) items.push({ label: "Copy", icon: Copy, run: () => copyText(selected) });
+  if (link && /^https?:/.test(link.href)) {
+    items.push(
+      { label: "Open link", icon: ExternalLink, run: () => (isTauri ? openUrl(link.href) : window.open(link.href, "_blank")) },
+      { label: "Copy link", icon: Copy, run: () => copyText(link.href) },
+    );
+  }
+  return items;
 }

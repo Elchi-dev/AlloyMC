@@ -2,6 +2,7 @@
 // calls go to an in-memory mock so the UI can be designed without the backend.
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { useStore } from "./store";
 import type {
   AlloyProfile,
   LinkedMinecraft,
@@ -15,9 +16,23 @@ type ImportResult = { instance: Instance; blocked: BlockedFile[] };
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (isTauri) return tauriInvoke<T>(cmd, args);
-  const { mockInvoke } = await import("./mock");
-  return mockInvoke<T>(cmd, args);
+  let out: T;
+  if (isTauri) out = await tauriInvoke<T>(cmd, args);
+  else {
+    const { mockInvoke } = await import("./mock");
+    out = await mockInvoke<T>(cmd, args);
+  }
+  noticeBlocked(out, args);
+  return out;
+}
+
+/** Any install that ends with files only CurseForge's website may hand out asks, once,
+ *  whether to fetch them in Alloy's CurseForge window. */
+function noticeBlocked(out: unknown, args?: Record<string, unknown>) {
+  const o = out as { blocked?: unknown[]; instance?: { id?: string } } | null;
+  if (!o || !Array.isArray(o.blocked) || o.blocked.length === 0) return;
+  const id = o.instance?.id ?? (typeof args?.instanceId === "string" ? args.instanceId : undefined);
+  if (id) useStore.getState().setCurseForgePrompt({ instanceId: id, count: o.blocked.length });
 }
 
 export const newJobId = () => crypto.randomUUID();
@@ -122,6 +137,8 @@ export const api = {
   savepointDelete: (instanceId: string, pointId: string) => call<void>("savepoint_delete", { instanceId, pointId }),
   exportCandidates: (instanceId: string) => call<ExportCandidate[]>("export_candidates", { instanceId }),
   exportInstance: (instanceId: string, options: ExportOptions) => call<ExportReport>("export_instance", { instanceId, options }),
+  packSource: (instanceId: string) => call<Instance["linkedPack"] | null>("pack_source", { instanceId }),
+  curseforgeWindow: (instanceId: string) => call<void>("curseforge_window", { instanceId }),
   importDiscover: () => call<FoundInstance[]>("import_discover"),
   importInspect: (path: string) => call<FoundInstance[]>("import_inspect", { path }),
   importInstance: (found: FoundInstance) => call<Instance>("import_instance", { found }),

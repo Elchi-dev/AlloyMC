@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { instanceMenu } from "../lib/menus";
 import { Compass, FolderInput, Plus } from "lucide-react";
 import { InstanceIcon } from "../components/Art";
 import { PlayButton } from "../components/PlayButton";
@@ -61,7 +62,7 @@ function Hero({ instance, player }: { instance: Instance; player?: string }) {
           {player ? `Welcome back, ${player}. ` : ""}
           {instance.lastPlayed ? `Last played ${ago(instance.lastPlayed).toLowerCase()}.` : "Ready for its first run."}
         </p>
-        <button onClick={() => go({ name: "instance", id: instance.id })} className="group flex items-center gap-5 text-left">
+        <button onClick={() => go({ name: "instance", id: instance.id })} onContextMenu={(e) => useStore.getState().openMenu(e, instanceMenu(instance))} className="group flex items-center gap-5 text-left">
           <span className="rise" style={i(1)}>
             <InstanceIcon instance={instance} size={88} shared tilt />
           </span>
@@ -93,7 +94,7 @@ function Hero({ instance, player }: { instance: Instance; player?: string }) {
 function RecentTile({ instance, index }: { instance: Instance; index: number }) {
   const go = useStore((s) => s.go);
   return (
-    <div className="card rise group flex items-center gap-3 rounded-[10px] p-3" style={i(index)}>
+    <div className="card rise group flex items-center gap-3 rounded-[10px] p-3" style={i(index)} onContextMenu={(e) => useStore.getState().openMenu(e, instanceMenu(instance))}>
       <button onClick={() => go({ name: "instance", id: instance.id })} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <InstanceIcon instance={instance} size={44} shared tilt />
         <span className="min-w-0">

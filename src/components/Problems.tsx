@@ -25,7 +25,6 @@ export function reportOutcome(out: InstallOutcome) {
   const t = useStore.getState().toast;
   if (out.installed.length) t({ kind: "success", text: `Installed ${out.installed.join(", ")}` });
   if (out.unresolved.length) t({ kind: "error", text: `No compatible version found for ${out.unresolved.join(", ")}` });
-  if (out.blocked.length) t({ kind: "info", text: `${out.blocked.length} file${out.blocked.length > 1 ? "s need" : " needs"} a manual download from CurseForge; see the Content tab.` });
 }
 
 export function ProblemList({ instanceId, problems, onFixed }: { instanceId: string; problems: Problem[]; onFixed?: () => void }) {

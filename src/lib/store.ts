@@ -71,6 +71,15 @@ interface State {
   preflight: { instanceId: string; result: Preflight } | null;
   setPreflight: (p: { instanceId: string; result: Preflight } | null) => void;
 
+  /** The right-click menu, wherever it was opened. */
+  menu: { at: { x: number; y: number }; items: import("../components/ContextMenu").MenuItem[] } | null;
+  openMenu: (e: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation?: () => void }, items: import("../components/ContextMenu").MenuItem[]) => void;
+  closeMenu: () => void;
+
+  /** Files only CurseForge's website hands out just arrived; the prompt shows while set. */
+  curseforgePrompt: { instanceId: string; count: number } | null;
+  setCurseForgePrompt: (p: { instanceId: string; count: number } | null) => void;
+
   /** A crash the doctor looked at; the dialog shows while this is set. */
   crash: { instanceId: string; diagnosis: Diagnosis } | null;
   setCrash: (c: { instanceId: string; diagnosis: Diagnosis } | null) => void;
@@ -148,6 +157,17 @@ export const useStore = create<State>((set, get) => ({
 
   preflight: null,
   setPreflight: (preflight) => set({ preflight }),
+
+  menu: null,
+  openMenu: (e, items) => {
+    e.preventDefault();
+    e.stopPropagation?.();
+    if (items.length) set({ menu: { at: { x: e.clientX, y: e.clientY }, items } });
+  },
+  closeMenu: () => set({ menu: null }),
+
+  curseforgePrompt: null,
+  setCurseForgePrompt: (curseforgePrompt) => set({ curseforgePrompt }),
 
   crash: null,
   setCrash: (crash) => set({ crash }),

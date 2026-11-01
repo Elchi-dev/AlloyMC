@@ -124,3 +124,22 @@ pub async fn import_instance(app: AppHandle, found: Found) -> Result<Instance> {
     changed(&app, "instances-changed");
     Ok(inst)
 }
+
+// ---------- the pack an instance came from ----------
+
+/// The public pack this instance came from, looked up once for instances imported from a
+/// file before Alloy did that on import. `None` when it isn't a pack or can't be found.
+#[tauri::command]
+pub async fn pack_source(app: AppHandle, state: State<'_, AppState>, instance_id: String) -> Result<Option<alloy_core::instance::LinkedPack>> {
+    let mut inst = instance::get(&state.launcher, &instance_id).await?;
+    let Some(mut link) = inst.linked_pack.clone() else { return Ok(None) };
+    if link.project_id.is_none() {
+        if !alloy_core::modpack::resolve_source(&state.launcher, &mut link, None).await {
+            return Ok(None);
+        }
+        inst.linked_pack = Some(link.clone());
+        inst.save(&state.launcher).await?;
+        changed(&app, "instances-changed");
+    }
+    Ok(Some(link))
+}

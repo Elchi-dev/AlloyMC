@@ -182,31 +182,54 @@ pub fn check(instance: &Instance, files: &[Scanned], java_major: Option<u32>) ->
         report.problems.push(Problem { severity, path: m.path.clone(), mod_name: display_name(m), kind, message });
     };
 
-    // Duplicates: two top-level jars declaring the same mod.
-    let mut seen: HashMap<&str, &Scanned> = HashMap::new();
+    // Duplicates: two top-level jars declaring the same mod. Fabric and Quilt load the newest
+    // copy and ignore the rest, so that's untidy but fine; Forge and NeoForge refuse to start.
+    let fabric_like = matches!(instance.loader, Loader::Fabric | Loader::Quilt);
+    let mut by_id: BTreeMap<&str, Vec<(&Scanned, &str)>> = BTreeMap::new();
     for m in &mods {
-        let entries = active_entries(m, &formats);
-        let Some(primary) = entries.first() else {
+        if let Some(primary) = active_entries(m, &formats).first() {
+            by_id.entry(primary.id.as_str()).or_default().push((m, primary.version.as_str()));
+        }
+    }
+    // Jars the loader won't load because a newer copy of the same mod is there.
+    let mut ignored: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (id, copies) in &by_id {
+        if copies.len() < 2 {
             continue;
-        };
-        if let Some(first) = seen.get(primary.id.as_str()) {
+        }
+        let (keep, keep_v) = *copies.iter().max_by(|a, b| compare(a.1, b.1)).unwrap();
+        for (m, v) in copies.iter().filter(|(m, _)| m.path != keep.path) {
             let name = display_name(m);
-            push(
-                &mut report,
-                Severity::Error,
-                m,
-                ProblemKind::Duplicate { mod_id: primary.id.clone(), other_path: first.path.clone() },
-                format!("{name} is installed twice ({} and {}). Keep one.", first.file_name, m.file_name),
-            );
-        } else {
-            seen.insert(primary.id.as_str(), m);
+            if fabric_like {
+                ignored.insert(m.path.as_str());
+                push(
+                    &mut report,
+                    Severity::Warning,
+                    m,
+                    ProblemKind::Duplicate { mod_id: id.to_string(), other_path: keep.path.clone() },
+                    format!(
+                        "{name} is installed twice ({} and {}). {} loads the newer one ({keep_v}) and ignores {v}, so you can remove it.",
+                        m.file_name,
+                        keep.file_name,
+                        loader_name(instance.loader)
+                    ),
+                );
+            } else {
+                push(
+                    &mut report,
+                    Severity::Error,
+                    m,
+                    ProblemKind::Duplicate { mod_id: id.to_string(), other_path: keep.path.clone() },
+                    format!("{name} is installed twice ({} and {}). Keep one.", m.file_name, keep.file_name),
+                );
+            }
         }
     }
 
     for m in &mods {
         let Some(jar) = &m.jar else { continue };
         let name = display_name(m);
-        if jar.formats.is_empty() {
+        if jar.formats.is_empty() || ignored.contains(m.path.as_str()) {
             continue;
         }
         let entries = active_entries(m, &formats);
@@ -246,9 +269,24 @@ pub fn check(instance: &Instance, files: &[Scanned], java_major: Option<u32>) ->
                     DepKind::Required => check_required(&mut report, &platform, &providers, m, &name, dep.id.as_str(), &range, push),
                     DepKind::Breaks | DepKind::Conflicts => {
                         let severe = dep.kind == DepKind::Breaks;
-                        let hits =
-                            providers.get(dep.id.as_str()).into_iter().flatten().filter(|(p, v, _)| p.path != m.path && range.matches(v));
-                        for (other, version, _) in hits {
+                        // The loader picks one copy of each mod (the newest that fits, and copies
+                        // bundled inside other jars only when nothing better is there). It's a
+                        // problem only if every copy it could pick is one this mod refuses.
+                        let copies: Vec<_> = providers
+                            .get(dep.id.as_str())
+                            .into_iter()
+                            .flatten()
+                            .filter(|(p, _, _)| !ignored.contains(p.path.as_str()))
+                            .collect();
+                        // Copies inside this same jar count as choices (Fabric API bundles the
+                        // newest of its own modules), but it can't be in conflict with itself.
+                        let all_refused = copies.iter().any(|(p, _, _)| p.path != m.path) && copies.iter().all(|(_, v, _)| range.matches(v));
+                        let hits = copies
+                            .iter()
+                            .filter(|(p, v, _)| all_refused && p.path != m.path && range.matches(v))
+                            .max_by_key(|(_, _, top)| *top)
+                            .map(|(p, v, t)| (*p, *v, *t));
+                        if let Some((other, version, _)) = hits {
                             let other_name = display_name(other);
                             let what = if matches!(range, Range::Any) { String::new() } else { format!(" {version}") };
                             push(
@@ -564,6 +602,49 @@ mod tests {
         m.jar.as_mut().unwrap().nested.push(ModEntry { id: "lib".into(), version: "2.1".into(), ..Default::default() });
         let r = check(&i, &[m, jar("weird.jar", Format::Fabric, "weird", "1", vec![])], None);
         assert!(r.problems.is_empty(), "{:?}", r.problems);
+    }
+
+    /// Homestead 2.0.1 (Fabric 1.20.1, 381 mods) starts fine; these used to be reported as
+    /// three errors, and the offered fixes would have broken it.
+    #[test]
+    fn homestead_starts_like_fabric_says() {
+        let i = inst(Loader::Fabric, "1.20.1", "0.19.5");
+        let old_fd = jar("farmers-delight-fabric-1.4.3.jar", Format::Fabric, "farmersdelight", "1.20.1-1.4.3", vec![]);
+        let new_fd = jar("FarmersDelight-1.20.1-2.4.1+refabricated.jar", Format::Fabric, "farmersdelight", "1.20.1-2.4.1+refabricated", vec![]);
+        let slice = jar(
+            "sliceanddice-fabric-3.5.2.jar",
+            Format::Fabric,
+            "sliceanddice",
+            "3.5.2-fabric",
+            vec![dep("farmersdelight", "<1.20.1-2.0.0", DepKind::Breaks)],
+        );
+        // Fabric API breaks old copies of its own modules; CoroUtil bundles an old Fabric API.
+        let mut api = jar("fabric-api-0.92.12+1.20.1.jar", Format::Fabric, "fabric-api", "0.92.12+1.20.1", vec![]);
+        api.jar.as_mut().unwrap().nested.push(ModEntry {
+            id: "fabric-networking-api-v1".into(),
+            version: "1.3.13+b3afc78b82".into(),
+            deps: vec![dep("fabric-networking-api-v1", "<1.0.0", DepKind::Breaks), dep("fabric-api-base", "<0.4.0", DepKind::Breaks)],
+            ..Default::default()
+        });
+        api.jar.as_mut().unwrap().nested.push(ModEntry { id: "fabric-api-base".into(), version: "0.4.31+1802ada577".into(), ..Default::default() });
+        let mut coro = jar("coroutil-fabric-1.20.1-1.3.7.jar", Format::Fabric, "coroutil", "1.20.1-1.3.7", vec![]);
+        coro.jar.as_mut().unwrap().nested.push(ModEntry { id: "fabric-api-base".into(), version: "0.3.35+b3afc78b82".into(), ..Default::default() });
+        let r = check(&i, &[old_fd, new_fd, slice, api, coro], Some(17));
+        assert_eq!(r.errors(), 0, "{:#?}", r.problems);
+        let dup: Vec<_> = r.problems.iter().filter(|p| matches!(p.kind, ProblemKind::Duplicate { .. })).collect();
+        assert_eq!(dup.len(), 1);
+        assert_eq!(dup[0].severity, Severity::Warning);
+        assert_eq!(dup[0].path, "mods/farmers-delight-fabric-1.4.3.jar", "the ignored, older copy is the one to remove");
+    }
+
+    #[test]
+    fn breaks_still_found_when_no_good_copy_exists() {
+        let i = inst(Loader::Fabric, "1.20.1", "0.16");
+        let slice = jar("slice.jar", Format::Fabric, "sliceanddice", "3", vec![dep("farmersdelight", "<1.20.1-2.0.0", DepKind::Breaks)]);
+        let old_fd = jar("fd.jar", Format::Fabric, "farmersdelight", "1.20.1-1.4.3", vec![]);
+        let r = check(&i, &[slice, old_fd], Some(17));
+        assert_eq!(r.errors(), 1);
+        assert!(matches!(&r.problems[0].kind, ProblemKind::Breaks { other_path: Some(p), .. } if p == "mods/fd.jar"));
     }
 
     #[test]

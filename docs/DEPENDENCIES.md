@@ -35,7 +35,8 @@ fine. A pre-launch check that cries wolf gets ignored, so it only reports what i
 | Library no longer needed | Offered for removal |
 | "Update all" | Moves a library only as far as its dependents allow; holds back the rest, with the reason |
 | Version ranges | Fabric/Quilt semver ranges and Maven ranges (Forge/NeoForge) |
-| Duplicates | The same mod in two jars is an error; the fix keeps the newer one |
+| Duplicates | On Forge and NeoForge the same mod in two jars is an error. Fabric and Quilt load the newest copy and ignore the rest, so there it's a note offering to remove the old one |
+| Copies bundled in other jars | The loader picks one copy of each mod. A `breaks` rule is a problem only if every copy it could pick is one the rule refuses; old copies bundled inside other mods (CoroUtil's Fabric API) don't count against a newer real one |
 | Wrong loader, game or Java | Reported before launch, with a fix where there is one |
 | Files a pack lists but couldn't ship | Fetched from CurseForge where allowed, else via Downloads |
 

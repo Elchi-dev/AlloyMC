@@ -28,3 +28,7 @@ chrono.workspace = true
 dirs = "6"
 base64 = "0.22"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# WebKitGTK only downloads what the page asks for if the app says so (see cfwindow.rs).
+webkit2gtk = { version = "2.0", features = ["v2_38"] }

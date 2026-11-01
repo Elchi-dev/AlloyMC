@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use crate::content::manage::BlockedFile;
-use crate::content::{curseforge, ContentMeta, Source};
+use crate::content::{curseforge, modrinth, ContentMeta, Source};
 use crate::download::{download_all, download_with_progress, DownloadTask};
 use crate::instance::{self, Instance, LinkedPack, NewInstance, PackSource};
 use crate::meta::loaders::Loader;
@@ -141,11 +141,66 @@ pub async fn import_url(launcher: &Launcher, url: &str, progress: &ProgressFn) -
     };
     download_with_progress(&launcher.http, &DownloadTask::new(url, &dest), &on_bytes).await?;
     let mut result = import_file(launcher, &dest, progress).await?;
-    if let Some(link) = result.instance.linked_pack.as_mut() {
+    if let Some(link) = result.instance.linked_pack.as_mut().filter(|l| l.project_id.is_none()) {
         link.source = PackSource::Url;
     }
     result.instance.save(launcher).await?;
     Ok(result)
+}
+
+// ---------- where a pack came from ----------
+
+/// For an instance imported from a file, finds the public pack it is: Modrinth by the file's
+/// SHA-1, CurseForge by its name and then the file's SHA-1 or version name. Fills in the
+/// project and version ids, so the instance can show the pack's page and get its updates.
+/// Returns whether anything was found. Network failures just mean "not found this time".
+pub async fn resolve_source(launcher: &Launcher, link: &mut LinkedPack, file: Option<&Path>) -> bool {
+    if link.project_id.is_some() {
+        return true;
+    }
+    let sha1 = match file {
+        Some(f) => tokio::fs::read(f).await.ok().map(|b| {
+            use sha1::Digest;
+            hex::encode(sha1::Sha1::digest(&b))
+        }),
+        None => None,
+    };
+    // Modrinth knows every file it hosts by hash.
+    if let Some(h) = &sha1 {
+        if let Ok(found) = modrinth::versions_from_hashes(launcher, std::slice::from_ref(h)).await {
+            if let Some(v) = found.get(h) {
+                link.source = PackSource::Modrinth;
+                link.project_id = Some(v.project_id.clone());
+                link.version_id = Some(v.id.clone());
+                link.version_name = Some(v.version_number.clone());
+                return true;
+            }
+        }
+    }
+    // CurseForge: the pack with exactly this name, then the file that matches.
+    let Some(name) = link.name.clone().filter(|n| !n.trim().is_empty()) else { return false };
+    let q = crate::content::SearchQuery { query: name.clone(), kind: Some(crate::content::ContentKind::Modpack), limit: 20, ..Default::default() };
+    let Ok(page) = curseforge::search(launcher, &q).await else { return false };
+    let norm = |s: &str| s.trim().to_lowercase();
+    let Some(hit) = page.hits.iter().find(|h| norm(&h.title) == norm(&name)) else { return false };
+    let Ok(id) = hit.id.parse::<u64>() else { return false };
+    link.source = PackSource::CurseForge;
+    link.project_id = Some(hit.id.clone());
+    if let Ok(files) = curseforge::mod_files(launcher, id, None, None).await {
+        let want = link.version_name.as_deref().map(norm);
+        let by_hash = sha1.as_ref().and_then(|h| files.iter().find(|f| f.hashes.iter().any(|x| x.algo == 1 && x.value.eq_ignore_ascii_case(h))));
+        let by_name = || {
+            files.iter().find(|f| {
+                let w = want.as_deref().unwrap_or("\u{0}");
+                norm(&f.display_name) == w || norm(&f.file_name) == w || norm(f.file_name.trim_end_matches(".zip")) == w
+            })
+        };
+        if let Some(f) = by_hash.or_else(by_name) {
+            link.version_id = Some(f.id.to_string());
+            link.version_name = Some(f.display_name.clone());
+        }
+    }
+    true
 }
 
 /// Detects the format from the archive's contents, not its extension.
@@ -158,11 +213,18 @@ pub async fn import_file(launcher: &Launcher, path: &Path, progress: &ProgressFn
     .await
     .map_err(|e| Error::other(e.to_string()))??;
 
-    match (mrpack, cf) {
+    let mut result = match (mrpack, cf) {
         (Some(index), _) => import_mrpack(launcher, path, serde_json::from_str(&index)?, progress).await,
         (None, Some(manifest)) => import_cf(launcher, path, serde_json::from_str(&manifest)?, progress).await,
         _ => Err(Error::other("Not a modpack: no modrinth.index.json or manifest.json inside")),
+    }?;
+    if let Some(mut link) = result.instance.linked_pack.clone() {
+        if resolve_source(launcher, &mut link, Some(path)).await {
+            result.instance.linked_pack = Some(link);
+            result.instance.save(launcher).await?;
+        }
     }
+    Ok(result)
 }
 
 fn read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Option<String> {

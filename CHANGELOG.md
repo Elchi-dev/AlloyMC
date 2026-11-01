@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.2
+
+Fixes from your first days with 0.3, and the CurseForge window.
+
+- **Files only CurseForge's website hands out, fetched in Alloy.** After an install that
+  leaves such files, Alloy offers to open them in a CurseForge window: it shows each file's
+  real page, catches the download CurseForge starts, checks it against CurseForge's hash,
+  adds it and moves on, then closes when they're all in. Downloading in your own browser
+  still works too.
+- **No more false problems in working packs.** The check before launch now follows what the
+  loader really loads. Fabric and Quilt use the newest copy of a mod and ignore the rest,
+  so two copies are a note, not an error, and old copies bundled inside other mods (like
+  the Fabric API inside CoroUtil) no longer count against the real one. Homestead, which
+  starts fine, showed three errors before; now it shows one note.
+- **The launcher no longer goes blank while the game runs.** Restoring it mid-game showed
+  an empty window: pausing animations to save GPU time also froze things on their first,
+  invisible frame. Only decorative loops pause now.
+- **Right-click menus everywhere:** instances, mods (or a whole selection), Discover
+  results, log lines, save points, text fields and links.
+- **About this pack.** Instances from a Modrinth or CurseForge pack link to its page in
+  Alloy, with description, gallery and versions. Packs imported from a file are found by
+  their hash or name.
+
 ## 0.3.1
 
 The last update you install by hand.

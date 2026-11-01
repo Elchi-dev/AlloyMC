@@ -2,11 +2,13 @@
 // hand-download from CurseForge, all from one overview call.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { contentMenu } from "../lib/menus";
+import { listen } from "../lib/bus";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUpCircle, Check, ChevronDown, CircleAlert, ExternalLink, Eye, Link2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowUpCircle, Check, ChevronDown, CircleAlert, Download, ExternalLink, Eye, Link2, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { Dialog, Empty, Segmented, Switch } from "../components/ui";
 import { ProblemList, reportOutcome } from "../components/Problems";
 import { api, isTauri } from "../lib/api";
@@ -171,12 +173,34 @@ function Banner({ tone, title, children, collapsed = false }: { tone: "error" | 
 }
 
 function BlockedPanel({ instance, files }: { instance: Instance; files: BlockedFile[] }) {
+  const [win, setWin] = useState<{ done: number; total: number; current?: string | null; error?: string | null; finished: boolean } | null>(null);
+  useEffect(
+    () =>
+      listen("curseforge-window", (e: { instanceId: string; done: number; total: number; current?: string; error?: string; finished: boolean }) => {
+        if (e.instanceId === instance.id) setWin(e.finished ? null : e);
+      }),
+    [instance.id],
+  );
+  const openWindow = () => api.curseforgeWindow(instance.id).catch(toastError);
   return (
     <Banner tone="info" title={`Waiting for ${files.length} ${files.length === 1 ? "file" : "files"} from CurseForge`}>
-      <p className="px-1 pb-2.5 text-[13px] text-ink-2">
-        Their authors only allow downloads on CurseForge's website. Download each one there; Alloy is watching your Downloads folder and adds them the moment they
-        arrive, checked against CurseForge's hash.
-      </p>
+      <div className="flex items-start gap-4 px-1 pb-3">
+        <p className="flex-1 text-[13px] text-ink-2">
+          Their authors only allow downloads on CurseForge's website. Alloy can open each page in a CurseForge window, catch the download, check it against CurseForge's
+          hash and close the window when they're all in. Or download them in your browser: Alloy watches your Downloads folder too.
+        </p>
+        <button className="btn btn-gold shrink-0" onClick={openWindow}>
+          <Download size={14} /> {win ? "Show the window" : files.length === 1 ? "Download it in Alloy" : `Download all ${files.length} in Alloy`}
+        </button>
+      </div>
+      {win && (
+        <div className="mb-2.5 flex items-center gap-3 rounded-[8px] bg-slate-900/80 px-3 py-2 text-[13px]">
+          <span className="spinner" />
+          <span className="flex-1 truncate text-ink-2">
+            {win.error ?? (win.current ? `${win.current}: waiting for CurseForge's download to start (${win.done + 1} of ${win.total})` : "Working…")}
+          </span>
+        </div>
+      )}
       <div className="flex flex-col gap-1.5">
         {files.map((f) => (
           <motion.div key={f.fileId} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: 20 }} className="flex items-center gap-3 rounded-[8px] bg-slate-900/80 px-3 py-2">
@@ -188,8 +212,8 @@ function BlockedPanel({ instance, files }: { instance: Instance; files: BlockedF
             <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
               <span className="spinner" /> Watching
             </span>
-            <button className="btn h-7 px-2.5 text-[12px] btn-gold" onClick={() => open(f.pageUrl)}>
-              <ExternalLink size={13} /> Download page
+            <button className="btn btn-quiet h-7 px-2.5 text-[12px]" onClick={() => open(f.pageUrl)} title="Open its page in your browser">
+              <ExternalLink size={13} /> In browser
             </button>
             <button className="grid h-7 w-7 place-items-center rounded-[6px] text-ink-3 hover:bg-slate-800 hover:text-ink" aria-label={`Stop waiting for ${f.title}`} onClick={() => api.dismissBlocked(instance.id, f.fileId).catch(toastError)}>
               <X size={14} />
@@ -384,7 +408,16 @@ function Row({ instance, item, index, byPath, problems, selected, onSelect, expa
       <div
         className="flex cursor-default items-center gap-3 px-4 py-2.5"
         onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onSelect(item.path, e) : toggle())}
-        onContextMenu={(e) => (e.preventDefault(), onSelect(item.path, { ...e, ctrlKey: true } as React.MouseEvent))}
+        onContextMenu={(e) =>
+          useStore.getState().openMenu(
+            e,
+            contentMenu(instance, item, {
+              select: () => onSelect(item.path, { ctrlKey: true } as React.MouseEvent),
+              selection: [...selected],
+              remove,
+            }),
+          )
+        }
       >
         <ItemIcon instance={instance} item={item} />
         <div className="min-w-0 flex-1">

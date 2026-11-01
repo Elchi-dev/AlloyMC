@@ -76,6 +76,14 @@ export function SavePointsTab({ instance }: { instance: Instance }) {
                     animate={{ opacity: 1, y: 0, transition: { delay: Math.min(i, 8) * 0.03 } }}
                     exit={{ opacity: 0, height: 0, marginTop: -8 }}
                     className="panel flex items-center gap-4 rounded-[10px] px-4 py-3"
+                    onContextMenu={(e) =>
+                      useStore.getState().openMenu(e, [
+                        { label: "Go back to this", icon: RotateCcw, disabled: running, run: () => setConfirm(p) },
+                        { label: "Rename", icon: Pencil, run: () => (setDraft(p.label), setEditing(p.id)) },
+                        { separator: true, label: "" },
+                        { label: "Delete", icon: Trash2, danger: true, run: () => act(`d:${p.id}`, () => api.savepointDelete(instance.id, p.id)) },
+                      ])
+                    }
                   >
                     <div className="min-w-0 flex-1">
                       {editing === p.id ? (

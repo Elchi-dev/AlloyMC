@@ -58,7 +58,6 @@ gold. See [docs/ORI.md](docs/ORI.md).
 | | Before | Now |
 | --- | --- | --- |
 | New instance of a version you already have | 47.2 s (re-hash every asset) | **58 ms** (size check; Repair re-hashes) |
-| Click Play to a ready Java command | n/a | **0.7 ms** (token and files pre-warmed on hover) |
 | Block textures for the UI | 41 MB client jar | **116 KB**, ranged reads from Mojang at install |
 | Window on screen | white flash, then UI | first painted frame, from cached data |
 

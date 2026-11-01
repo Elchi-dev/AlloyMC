@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { instanceMenu, openPackPage } from "../lib/menus";
 import { CrashBanner } from "../components/CrashDoctor";
 import { SavePointsTab } from "../components/SavePoints";
 import { ExportDialog } from "../components/ExportDialog";
-import { ArrowDownToLine, ChevronLeft, Copy, FolderOpen, MoreHorizontal, PackageOpen, Search, Trash2, Wrench } from "lucide-react";
+import { ArrowDownToLine, BookOpen, ChevronLeft, Copy, FolderOpen, MoreHorizontal, PackageOpen, Search, Trash2, Wrench } from "lucide-react";
 import { InstanceIcon } from "../components/Art";
 import { Ori } from "../components/ori/Ori";
 import { PlayButton } from "../components/PlayButton";
@@ -33,7 +34,7 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
         <button className="mb-4 flex items-center gap-1 text-[13px] text-ink-3 hover:text-ink" onClick={back}>
           <ChevronLeft size={15} /> Back
         </button>
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-5" onContextMenu={(e) => useStore.getState().openMenu(e, instanceMenu(instance))}>
           <EditableIcon instance={instance} />
           <div className="min-w-0 flex-1">
             <h2 className="rise truncate font-pixel text-[32px] font-medium leading-tight" style={{ ["--i" as string]: 1 } as React.CSSProperties}>{instance.name}</h2>
@@ -43,7 +44,12 @@ export function InstancePage({ id, tab = "content" }: { id: string; tab?: "conte
                 {loaderName[instance.loader]}
                 {instance.loaderVersion ? ` ${instance.loaderVersion}` : ""}
               </span>
-              {instance.linkedPack?.name && <span className="chip">From {instance.linkedPack.name} {instance.linkedPack.versionName}</span>}
+              {instance.linkedPack?.name && (
+                <button className="chip transition-colors hover:border-gold/60 hover:text-ink" onClick={() => openPackPage(instance)} title="About this pack">
+                  <BookOpen size={12} /> From {instance.linkedPack.name}
+                  {instance.linkedPack.versionName && !instance.linkedPack.name.includes(instance.linkedPack.versionName) ? ` ${instance.linkedPack.versionName.replace(/\.(zip|mrpack)$/i, "")}` : ""}
+                </button>
+              )}
               <span className="pl-1 text-[12px] text-ink-3">
                 {!instance.lastPlayed
                   ? "Not played yet"
@@ -141,6 +147,7 @@ function MoreMenu({ instance }: { instance: Instance }) {
   };
   const items = [
     { label: "Open folder", icon: FolderOpen, run: run(() => api.openFolder(instance.id)) },
+    ...(instance.linkedPack?.name ? [{ label: "About this pack", icon: BookOpen, run: () => (setOpen(false), void openPackPage(instance)) }] : []),
     { label: "Export as modpack", icon: PackageOpen, run: () => (setOpen(false), setExporting(true)) },
     { label: "Duplicate", icon: Copy, run: run(() => api.duplicateInstance(instance.id, `${instance.name} copy`)) },
     {
@@ -224,13 +231,13 @@ function LogsTab({ instance }: { instance: Instance }) {
           <ArrowDownToLine size={15} /> Copy log
         </button>
       </div>
-      <LogView lines={shown} empty={logs.length ? "No lines match." : "Start the game to see its output here."} follow={follow} setFollow={setFollow} />
+      <LogView instanceId={instance.id} lines={shown} empty={logs.length ? "No lines match." : "Start the game to see its output here."} follow={follow} setFollow={setFollow} />
     </div>
   );
 }
 
 /** Only the visible lines are in the DOM, so a 5,000-line log scrolls like a short one. */
-function LogView({ lines, empty, follow, setFollow }: { lines: { line: string; level: keyof typeof levelColor }[]; empty: string; follow: boolean; setFollow: (v: boolean) => void }) {
+function LogView({ instanceId, lines, empty, follow, setFollow }: { instanceId: string; lines: { line: string; level: keyof typeof levelColor }[]; empty: string; follow: boolean; setFollow: (v: boolean) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: lines.length, getScrollElement: () => box.current, estimateSize: () => 19, overscan: 30 });
   useEffect(() => {
@@ -262,6 +269,16 @@ function LogView({ lines, empty, follow, setFollow }: { lines: { line: string; l
                 ref={v.measureElement}
                 className={`log-line absolute left-0 right-0 whitespace-pre-wrap break-words ${levelColor[l.level]}`}
                 style={{ transform: `translateY(${row.start}px)` }}
+                onContextMenu={(e) => {
+                  const sel = window.getSelection()?.toString() ?? "";
+                  useStore.getState().openMenu(e, [
+                    ...(sel.trim() ? [{ label: "Copy selection", run: () => void navigator.clipboard.writeText(sel) }] : []),
+                    { label: "Copy line", run: () => void navigator.clipboard.writeText(l.line) },
+                    { label: "Copy the whole log", run: () => void navigator.clipboard.writeText(lines.map((x) => x.line).join("\n")) },
+                    { separator: true, label: "" },
+                    { label: "Open logs folder", run: () => void api.openFolder(instanceId, "logs").catch(toastError) },
+                  ]);
+                }}
               >
                 {l.line}
               </div>

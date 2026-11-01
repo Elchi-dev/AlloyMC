@@ -90,12 +90,6 @@ export function CreateInstanceDialog() {
     try {
       const r = await api.importModpack(source, jobId);
       useStore.getState().toast({ kind: "success", text: `${r.instance.name} is ready to play`, action: { label: "Open", run: () => go({ name: "instance", id: r.instance.id }) } });
-      if (r.blocked.length)
-        useStore.getState().toast({
-          kind: "info",
-          text: `${r.blocked.length} file${r.blocked.length > 1 ? "s" : ""} can only be downloaded on CurseForge's website. Alloy lists them on the Content tab and picks them up from Downloads.`,
-          action: { label: "Show", run: () => go({ name: "instance", id: r.instance.id, tab: "content" }) },
-        });
     } catch (err) {
       toastError(err);
     }

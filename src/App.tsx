@@ -7,6 +7,8 @@ import { CreateInstanceDialog } from "./components/CreateInstance";
 import { DropOverlay, useFileDrop } from "./components/Drop";
 import { PreflightDialog } from "./components/Problems";
 import { CrashDoctorDialog } from "./components/CrashDoctor";
+import { GlobalMenu } from "./components/ContextMenu";
+import { CurseForgePrompt } from "./components/CurseForgePrompt";
 import { Toasts } from "./components/ui";
 import { useUpdates } from "./components/Updates";
 import { api, isTauri } from "./lib/api";
@@ -169,6 +171,8 @@ export default function App() {
       <CreateInstanceDialog />
       <PreflightDialog />
       <CrashDoctorDialog />
+      <GlobalMenu />
+      <CurseForgePrompt />
       <DropOverlay />
       <Toasts />
     </div>

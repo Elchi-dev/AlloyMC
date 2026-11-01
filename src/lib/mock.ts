@@ -182,6 +182,8 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
       { from: "modrinthApp", name: "Cobblemon Official", gameDir: "/home/elchi/.local/share/ModrinthApp/profiles/Cobblemon Official", gameVersion: "1.21.1", loader: "fabric", loaderVersion: "0.16.10", mods: 73, worlds: 1 },
     ]);
     case "import_inspect": return r([]);
+    case "curseforge_window": return r(undefined);
+    case "pack_source": return r({ source: "modrinth", projectId: "1KVo5zza", versionId: null, name: "Fabulously Optimized", versionName: "6.4.0" });
     case "import_instance": await sleep(900); return r(db.instances[0]);
     case "crash_dismiss": delete crashes[args.instanceId]; return r(undefined);
     case "crash_apply_fix": {

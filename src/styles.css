@@ -407,10 +407,20 @@
   }
 }
 
-/* Motion settings and pausing. Loops pause while a game runs or Alloy is in the background,
-   so the launcher never takes GPU time from Minecraft. */
-html[data-paused] *,
-html[data-paused] *::after {
+/* Motion settings and pausing. Decorative loops pause while a game runs or Alloy is in the
+   background, so the launcher never takes GPU time from Minecraft. Only loops: pausing an
+   entrance animation would freeze it on its first, invisible frame, and anything shown
+   while paused (the window restored mid-game) would stay blank. */
+html[data-paused] .play-block::after,
+html[data-paused] .play-block .running-dot,
+html[data-paused] .kenburns,
+html[data-paused] .forge-overlay *,
+html[data-paused] .smoke,
+html[data-paused] .bg-ember,
+html[data-paused] .molten-css,
+html[data-paused] .update-ring,
+html[data-paused] .download-bob,
+html[data-paused] svg [class*="ori-"] {
   animation-play-state: paused !important;
 }
 html[data-motion="calm"] .play-block::after,
