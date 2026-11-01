@@ -1,5 +1,6 @@
 //! Mods, resource packs and shaders: searching both platforms and managing what's installed.
 
+pub mod annotations;
 pub mod blocked;
 pub mod check;
 pub mod curseforge;

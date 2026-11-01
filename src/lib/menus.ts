@@ -1,11 +1,12 @@
 // What right-clicking things offers. Each builder returns the items for one kind of thing,
 // so the same instance gets the same menu on Home, in the Library and on its own page.
 
-import { BookOpen, Bookmark, Copy, ExternalLink, FolderInput, FolderOpen, Play, PowerOff, Power, Trash2, Wrench } from "lucide-react";
+import { BookOpen, Bookmark, Copy, ExternalLink, FolderInput, FolderOpen, Play, PowerOff, Power, Sparkles, Trash2, Wrench } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { MenuItem } from "../components/ContextMenu";
 import { api, isTauri, newJobId } from "./api";
 import { toastError, useStore } from "./store";
+import { useAssistant } from "./assistant";
 import type { ContentHit, ContentItem, Instance } from "./types";
 
 export const openExternal = (url: string) => (isTauri ? openUrl(url) : Promise.resolve(void window.open(url, "_blank"))).catch(toastError);
@@ -22,6 +23,18 @@ export function instanceMenu(i: Instance): MenuItem[] {
     { label: "Open", icon: FolderInput, run: () => go({ name: "instance", id: i.id }) },
     { label: "Save points", icon: Bookmark, run: () => go({ name: "instance", id: i.id, tab: "savepoints" }) },
     ...(i.linkedPack?.name ? [{ label: "About this pack", icon: BookOpen, run: () => void openPackPage(i) }] : []),
+    {
+      label: "Ask the assistant",
+      icon: Sparkles,
+      run: () => {
+        const a = useAssistant.getState();
+        if (!a.busy) {
+          if (a.messages.length) a.reset();
+          a.setInstance(i.id);
+        }
+        a.setOpen(true);
+      },
+    },
     sep,
     { label: "Open folder", icon: FolderOpen, run: () => api.openFolder(i.id).catch(toastError) },
     { label: "Duplicate", icon: Copy, run: () => api.duplicateInstance(i.id, `${i.name} copy`).catch(toastError) },

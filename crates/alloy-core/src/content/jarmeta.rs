@@ -179,12 +179,19 @@ pub fn read<R: Read + Seek>(reader: R, depth: u8) -> Option<JarMeta> {
     }
     // Read even next to a mods.toml: many 1.12.2 jars carry a leftover mods.toml for a newer
     // Forge that their own Forge never reads. The check picks by the instance's version.
+    // Forge 1.12 and older load what the classes' @Mod annotations say; mcmod.info only
+    // names them. Read the annotations for jars that look like such mods.
     {
-        if let Some(json) = text(&mut zip, "mcmod.info") {
-            if let Some(entries) = parse_mcmod_info(&json) {
-                meta.formats.push(Format::LegacyForge);
-                meta.mods.extend(entries);
-            }
+        let info = text(&mut zip, "mcmod.info").and_then(|json| parse_mcmod_info(&json));
+        let looks_legacy = info.is_some() || (meta.formats.is_empty() && depth == 0);
+        let annotated = if looks_legacy { super::annotations::read(&mut zip).filter(|a| !a.is_empty()) } else { None };
+        let entries = match annotated {
+            Some(found) => Some(legacy_from_annotations(found, info.unwrap_or_default(), manifest_version.as_deref())),
+            None => info,
+        };
+        if let Some(entries) = entries {
+            meta.formats.push(Format::LegacyForge);
+            meta.mods.extend(entries);
         }
     }
     if let Some(json) = text(&mut zip, "META-INF/jarjar/metadata.json") {
@@ -478,6 +485,37 @@ fn parse_mods_toml(src: &str, manifest_version: Option<&str>, neoforge: bool) ->
         });
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// Legacy entries for the mods Forge really loads (the `@Mod` ids), described by
+/// `mcmod.info` where its ids match. Other `mcmod.info` ids still count as present (a
+/// coremod's container can register them) but not as a second copy of anything.
+fn legacy_from_annotations(found: Vec<super::annotations::ModAnnotation>, info: Vec<ModEntry>, manifest_version: Option<&str>) -> Vec<ModEntry> {
+    let real = |v: &str| !v.is_empty() && !v.contains('$') && !v.contains('@');
+    let ids: Vec<&str> = found.iter().map(|a| a["modid"].as_str()).collect();
+    let mut out: Vec<ModEntry> = info.iter().filter(|e| ids.contains(&e.id.as_str())).cloned().collect();
+    for a in &found {
+        let id = &a["modid"];
+        if out.iter().any(|e| &e.id == id) {
+            continue;
+        }
+        out.push(ModEntry {
+            id: id.clone(),
+            version: a.get("version").filter(|v| real(v)).cloned().or_else(|| manifest_version.map(str::to_string)).unwrap_or_default(),
+            name: a.get("name").cloned(),
+            description: None,
+            provides: vec![],
+            deps: vec![],
+            icon: None,
+            environment: None,
+            format: Some(Format::LegacyForge),
+        });
+    }
+    let extra: Vec<String> = info.into_iter().map(|e| e.id).filter(|id| !ids.contains(&id.as_str())).collect();
+    if let Some(first) = out.first_mut() {
+        first.provides.extend(extra);
+    }
+    out
 }
 
 /// Legacy `mcmod.info`: a list of mods, or `{ "modList": [...] }`.

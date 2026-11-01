@@ -124,6 +124,14 @@ pub async fn curseforge_files(state: State<'_, AppState>, mod_id: u64, instance_
 
 // ---------- installs ----------
 
+/// Tells the window right after a pack's import that some files must come from CurseForge's
+/// website, so it can offer the CurseForge window while the game files still download.
+fn announce_blocked(app: &AppHandle, result: &ImportResult) {
+    if !result.blocked.is_empty() {
+        let _ = app.emit("curseforge-needed", serde_json::json!({ "instanceId": result.instance.id, "count": result.blocked.len() }));
+    }
+}
+
 fn outcome_toast(app: &AppHandle, instance_id: &str, outcome: &InstallOutcome) {
     if !outcome.blocked.is_empty() {
         let _ = app.emit("blocked-changed", serde_json::json!({ "instanceId": instance_id }));
@@ -253,6 +261,7 @@ pub async fn install_modrinth_modpack(app: AppHandle, version_id: String, job_id
             });
             result.instance.save(&launcher).await?;
             changed(&a, "instances-changed");
+            announce_blocked(&a, &result);
             let id = result.instance.id.clone();
             do_install(&a, &id, &j, false).await?;
             Ok(result)
@@ -321,6 +330,7 @@ pub async fn import_modpack(app: AppHandle, source: String, job_id: String) -> R
                 modpack::import_file(&launcher, Path::new(&s), &progress).await?
             };
             changed(&a, "instances-changed");
+            announce_blocked(&a, &result);
             let id = result.instance.id.clone();
             do_install(&a, &id, &j, false).await?;
             Ok(result)

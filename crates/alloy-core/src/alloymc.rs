@@ -102,8 +102,12 @@ impl AlloyMc {
         self.launcher.dirs.root().join("alloymc.json")
     }
 
-    fn token(&self) -> Option<String> {
+    pub(crate) fn token(&self) -> Option<String> {
         self.secrets.get(TOKEN_KEY).ok().flatten().filter(|t| !t.is_empty())
+    }
+
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.launcher.http
     }
 
     pub fn signed_in(&self) -> bool {
@@ -257,14 +261,14 @@ pub async fn join_server(http: &reqwest::Client, access_token: &str, uuid: &str,
     }))
 }
 
-async fn read<T: serde::de::DeserializeOwned>(res: reqwest::Response) -> Result<T> {
+pub(crate) async fn read<T: serde::de::DeserializeOwned>(res: reqwest::Response) -> Result<T> {
     if !res.status().is_success() {
         return Err(api_error(res).await);
     }
     Ok(res.json().await?)
 }
 
-async fn api_error(res: reqwest::Response) -> Error {
+pub(crate) async fn api_error(res: reqwest::Response) -> Error {
     let status = res.status();
     match res.json::<ApiError>().await {
         Ok(e) => {

@@ -13,6 +13,7 @@ import { PlayerHead } from "./Art";
 import { Logo } from "./Logo";
 import { DownloadsButton } from "./Downloads";
 import { UpdateButton } from "./Updates";
+import { AssistantButton } from "./Assistant";
 
 export function TitleBar({ title }: { title: string }) {
   const win = isTauri ? getCurrentWindow() : null;
@@ -110,6 +111,7 @@ export function Rail() {
         {nav.map((n) => item(n.page, n.label, n.icon))}
         <div className="my-2 h-px w-7 bg-line" />
         {item("home", "New instance", Plus, () => setCreateOpen(true))}
+        <AssistantButton />
       </div>
       <div className="no-drag mt-auto flex flex-col items-center gap-1">
         <UpdateButton />

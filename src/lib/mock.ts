@@ -113,6 +113,53 @@ const points: Record<string, SavePoint[]> = {
   },
 };
 
+let chats: any[] = [];
+let big: ContentItem[] | null = null;
+/** A 220-mod pack, for long lists. */
+const bigPack = () =>
+  (big ??= Array.from({ length: 220 }, (_, n) => item({ path: `mods/mod-${String(n).padStart(3, "0")}.jar`, title: `Mod number ${n}`, meta: { source: "curseforge", versionName: `1.${n}` } })));
+
+/** A scripted Claude for designing the panel: looks at instances, proposes a config change, sums up. */
+async function mockAssistant(requestId: string, messages: any[]) {
+  const last = messages[messages.length - 1];
+  const results = last.content.filter((b: any) => b.type === "tool_result");
+  const stream = async (index: number, text: string) => {
+    for (const word of text.split(/(?<= )/)) {
+      emitLocal("assistant-delta", { requestId, delta: { type: "text", index, text: word } });
+      await sleep(25);
+    }
+  };
+  const tool = (index: number, name: string, input: unknown) => {
+    const id = `toolu_${Math.random().toString(36).slice(2, 10)}`;
+    emitLocal("assistant-delta", { requestId, delta: { type: "tool", index, id, name } });
+    return { type: "tool_use", id, name, input };
+  };
+  await sleep(500);
+  if (results.length === 0) {
+    const text = "Let me look at your instances first.";
+    await stream(0, text);
+    const t = tool(1, "list_instances", {});
+    await sleep(300);
+    return { content: [{ type: "text", text }, t], stopReason: "tool_use" };
+  }
+  if (results.length === 1 && messages.filter((m: any) => m.role === "assistant").length === 1) {
+    const text = "**Fabulously Optimized** already has Sodium. Turning leaves to *fast* gives a few more frames in forests:";
+    await stream(0, text);
+    const t = tool(1, "write_file", {
+      instance_id: "fabulously-optimized",
+      path: "config/sodium-options.json",
+      content: '{\n  "quality": {\n    "weather_quality": "DEFAULT",\n    "leaves_quality": "FAST"\n  },\n  "advanced": {}\n}',
+    });
+    return { content: [{ type: "text", text }, t], stopReason: "tool_use" };
+  }
+  const declined = results.some((r: any) => r.is_error);
+  const text = declined
+    ? "No problem, I left it as it was. Want me to look at something else, like memory or shaders?"
+    : "Done. Leaves now render fast in **Fabulously Optimized**.\n\n- It shows the next time you start the game\n- You can switch it back in *Video Settings → Quality*";
+  await stream(0, text);
+  return { content: [{ type: "text", text }], stopReason: "end_turn" };
+}
+
 export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
   await sleep(40);
   const r = (v: unknown) => v as T;
@@ -159,7 +206,7 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
       emitLocal("game-state", { instanceId: id, state: "running" });
       emitLocal("instances-changed", null);
       const lines = ["[Render thread/INFO]: Setting user: Elchi", "[Render thread/INFO]: Backend library: LWJGL version 3.4.1", "[Render thread/INFO]: Reloading ResourceManager: vanilla", "[Worker-Main-2/INFO]: Loaded 1407 recipes", "[Render thread/WARN]: Missing sound for event: minecraft:item.goat_horn.play", "[Render thread/INFO]: Sound engine started"];
-      lines.forEach((line, n) => setTimeout(() => emitLocal("game-log", { instanceId: id, stream: "stdout", line }), 300 * (n + 1)));
+      lines.forEach((line, n) => setTimeout(() => emitLocal("game-log", { instanceId: id, lines: [{ stream: "stdout", line }] }), 300 * (n + 1)));
       return r(undefined);
     }
     case "stop_instance": db.running.delete(args.id); emitLocal("game-state", { instanceId: args.id, state: "exited", exitCode: 0 }); return r(undefined);
@@ -230,13 +277,25 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     case "install_modrinth_version": await sleep(900); emitLocal("content-changed", null); return r(["Installed"]);
     case "install_modrinth_modpack":
     case "import_modpack": await fakeJob(args.jobId, null); throw "Modpack installs run in the desktop app.";
-    case "content_overview": return r({ items: content, report: { problems: [], requires: {}, requiredBy: {}, orphans: [], modCount: content.length }, blocked: [], listedMissing: false });
+    case "content_overview": return r({ items: args.instanceId === "create-above-beyond" ? bigPack() : content, report: { problems: [], requires: {}, requiredBy: {}, orphans: [], modCount: content.length }, blocked: [], listedMissing: false });
     case "set_content_enabled": { content.filter((x) => args.paths.includes(x.path)).forEach((c) => (c.enabled = args.enabled)); emitLocal("content-changed", null); return r(undefined); }
     case "remove_content": { for (const p of args.paths) { const idx = content.findIndex((x) => x.path === p); if (idx >= 0) content.splice(idx, 1); } emitLocal("content-changed", null); return r(undefined); }
     case "check_content_updates": case "content_fixes": case "list_jobs": return r([]);
     case "preflight": return r({ errors: [], warnings: [], system: [] });
     case "memory_advice": return r({ totalMb: 32768, maxGameMb: 28672, recommendedMb: args.instanceId ? 4096 : null, mods: args.instanceId ? 4 : null });
     case "instance_icon": case "content_icon": return r(null);
+    case "assistant_status": return r({ signedIn: true, available: true, dayUsed: 12, monthUsed: 4, unlimited: false });
+    case "assistant_send": return r(await mockAssistant(args.requestId, args.messages));
+    case "assistant_cancel": case "assistant_checkpoint": return r(undefined);
+    case "assistant_read_file": return r('{\n  "quality": { "weather_quality": "DEFAULT" }\n}');
+    case "assistant_current_text": return r('{\n  "quality": {\n    "weather_quality": "DEFAULT",\n    "leaves_quality": "DEFAULT"\n  },\n  "advanced": {}\n}');
+    case "assistant_write_file": await sleep(300); return r(undefined);
+    case "assistant_read_log": return r("[12:00:01] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.20.1\n[12:00:09] [Render thread/INFO]: Sodium loaded");
+    case "assistant_chats": return r(chats.map(({ messages: _m, labels: _l, ...c }) => c));
+    case "assistant_chat": return r(chats.find((c) => c.id === args.id));
+    case "assistant_chat_save": chats = [args.chat, ...chats.filter((c) => c.id !== args.chat.id)]; return r(undefined);
+    case "assistant_chat_delete": chats = chats.filter((c) => c.id !== args.id); return r(undefined);
+    case "test_launch": await sleep(2500); return r({ started: true });
   }
   throw `mock: unknown command ${cmd}`;
 }

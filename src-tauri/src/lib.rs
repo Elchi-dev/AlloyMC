@@ -1,4 +1,5 @@
 mod alloymc;
+mod assistant;
 mod cfwindow;
 mod doctor;
 mod packs;
@@ -76,6 +77,7 @@ pub fn run() {
             app.manage(state::AppState::new(launcher.clone(), accounts, alloymc));
             app.manage(alloymc::SignIn::default());
             app.manage(cfwindow::CfQueue::default());
+            app.manage(assistant::Streams::default());
             app.manage(jobs::Jobs::default());
             doctor::recover_on_start(launcher.clone());
             updater::start_auto(app.handle().clone());
@@ -189,6 +191,19 @@ pub fn run() {
             doctor::crash_dismiss,
             doctor::crash_apply_fix,
             doctor::bisect_start,
+            doctor::test_launch,
+            assistant::assistant_status,
+            assistant::assistant_send,
+            assistant::assistant_cancel,
+            assistant::assistant_read_file,
+            assistant::assistant_current_text,
+            assistant::assistant_write_file,
+            assistant::assistant_read_log,
+            assistant::assistant_checkpoint,
+            assistant::assistant_chats,
+            assistant::assistant_chat,
+            assistant::assistant_chat_save,
+            assistant::assistant_chat_delete,
             packs::savepoints,
             packs::savepoint_create,
             packs::savepoint_restore,

@@ -9,6 +9,7 @@ import { PreflightDialog } from "./components/Problems";
 import { CrashDoctorDialog } from "./components/CrashDoctor";
 import { GlobalMenu } from "./components/ContextMenu";
 import { CurseForgePrompt } from "./components/CurseForgePrompt";
+import { AssistantPanel } from "./components/Assistant";
 import { Toasts } from "./components/ui";
 import { useUpdates } from "./components/Updates";
 import { api, isTauri } from "./lib/api";
@@ -168,6 +169,7 @@ export default function App() {
           </LayoutGroup>
         </main>
       </div>
+      <AssistantPanel />
       <CreateInstanceDialog />
       <PreflightDialog />
       <CrashDoctorDialog />

@@ -75,6 +75,7 @@ export function useBackendEvents() {
         queryClient.invalidateQueries({ queryKey: ["fixes"] });
       }),
       listen("blocked-changed", () => queryClient.invalidateQueries({ queryKey: ["content"] })),
+      listen("curseforge-needed", (e: { instanceId: string; count: number }) => s().setCurseForgePrompt(e)),
       listen("blocked-collected", (e: { instanceId: string; titles: string[] }) =>
         s().toast({ kind: "success", text: `Found ${e.titles.join(", ")} in Downloads and added ${e.titles.length > 1 ? "them" : "it"}` }),
       ),
@@ -110,9 +111,10 @@ export function useBackendEvents() {
         s().setBisect(e.instanceId, { ...s().bisect[e.instanceId], ...e, running });
         if (!running) queryClient.invalidateQueries({ queryKey: ["content"] });
       }),
-      listen("game-log", (e: { instanceId: string; stream: "stdout" | "stderr"; line: string }) => {
-        const parsed = parseLine(e.instanceId, e.stream, e.line);
-        if (parsed) s().pushLog(e.instanceId, parsed);
+      // The game's output arrives in batches (a modded start prints thousands of lines).
+      listen("game-log", (e: { instanceId: string; lines: { stream: "stdout" | "stderr"; line: string }[] }) => {
+        const parsed = e.lines.map((l) => parseLine(e.instanceId, l.stream, l.line)).filter((l): l is NonNullable<typeof l> => !!l);
+        if (parsed.length) s().pushLogs(e.instanceId, parsed);
       }),
     ];
     api.running().then((ids) => ids.forEach((id) => s().setGame(id, "running")));

@@ -39,7 +39,7 @@ pub struct Scanned {
 }
 
 /// Bump when what's cached per file changes, so old caches are rebuilt.
-const CACHE_VERSION: u32 = 5;
+const CACHE_VERSION: u32 = 7;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Cache {

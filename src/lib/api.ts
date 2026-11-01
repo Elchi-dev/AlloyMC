@@ -11,6 +11,8 @@ import type {
   Overview, Platform, Preflight, SearchPage, SearchQuery, Settings, Suggestion, UpdateResult, FoundUpdate,
   UpdateOutcome, BlockedFile, BisectFound, CrashFix, Diagnosis, SavePoint, SavePoints, ExportCandidate, ExportOptions, ExportReport, FoundInstance } from "./types";
 
+import type { AssistantStatus, Block, Chat, ChatSummary, Mode, Msg } from "./assistant";
+
 type ImportResult = { instance: Instance; blocked: BlockedFile[] };
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -143,6 +145,20 @@ export const api = {
   importInspect: (path: string) => call<FoundInstance[]>("import_inspect", { path }),
   importInstance: (found: FoundInstance) => call<Instance>("import_instance", { found }),
   retryJob: (id: string) => call<void>("retry_job", { id }),
+  testLaunch: (instanceId: string) => call<{ started: boolean; diagnosis?: Diagnosis | null }>("test_launch", { instanceId }),
+  assistantStatus: () => call<AssistantStatus>("assistant_status"),
+  assistantSend: (requestId: string, mode: Mode, messages: Msg[]) =>
+    call<{ content: Block[]; stopReason?: string | null }>("assistant_send", { requestId, mode, messages }),
+  assistantCancel: (requestId: string) => call<void>("assistant_cancel", { requestId }),
+  assistantReadFile: (instanceId: string, path: string) => call<string>("assistant_read_file", { instanceId, path }),
+  assistantCurrentText: (instanceId: string, path: string) => call<string | null>("assistant_current_text", { instanceId, path }),
+  assistantWriteFile: (instanceId: string, path: string, content: string) => call<void>("assistant_write_file", { instanceId, path, content }),
+  assistantReadLog: (instanceId: string, lines?: number, contains?: string) => call<string>("assistant_read_log", { instanceId, lines, contains }),
+  assistantCheckpoint: (instanceId: string) => call<void>("assistant_checkpoint", { instanceId }),
+  assistantChats: () => call<ChatSummary[]>("assistant_chats"),
+  assistantChat: (id: string) => call<Chat>("assistant_chat", { id }),
+  assistantChatSave: (chat: Chat) => call<void>("assistant_chat_save", { chat }),
+  assistantChatDelete: (id: string) => call<void>("assistant_chat_delete", { id }),
   clearJobs: () => call<void>("clear_jobs"),
 };
 

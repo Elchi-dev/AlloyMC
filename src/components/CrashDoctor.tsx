@@ -4,7 +4,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronDown, FileText, FlaskConical, Play, PowerOff, ScrollText, X } from "lucide-react";
+import { ChevronDown, FileText, FlaskConical, Play, PowerOff, ScrollText, Sparkles, X } from "lucide-react";
+import { useAssistant } from "../lib/assistant";
 import { api } from "../lib/api";
 import { useInstance } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
@@ -171,6 +172,12 @@ function CrashDoctor({ instanceId, diagnosis: d, onClose }: { instanceId: string
             <FileText size={14} /> Crash report
           </button>
         )}
+        <button
+          className="btn btn-quiet"
+          onClick={() => (onClose(), useAssistant.getState().ask("My game crashed. What happened, and how do I fix it?", instanceId))}
+        >
+          <Sparkles size={14} /> Ask the assistant
+        </button>
         <span className="ml-auto" />
         <button className="btn btn-quiet" onClick={onClose}>
           Close

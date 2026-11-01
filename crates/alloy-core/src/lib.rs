@@ -4,6 +4,7 @@
 //! long-running work reports through a [`progress::ProgressFn`] callback.
 
 pub mod alloymc;
+pub mod assistant;
 pub mod bisect;
 pub mod crash;
 pub mod savepoint;

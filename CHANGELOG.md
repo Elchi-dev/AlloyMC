@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.0
+
+**Claude, inside Alloy.** Open the assistant from the rail (or Ctrl+J), the crash doctor,
+the problems dialog or an instance's right-click menu, and ask about your Minecraft.
+
+- **It looks before it answers.** Claude can see your instances and everything in them,
+  the pre-launch check and its fixes, the crash doctor's diagnosis, the game's log and
+  config files, and search Modrinth and CurseForge filtered to your version and loader.
+- **It asks before it changes anything.** Creating an instance, installing a mod with what
+  it needs, turning mods on or off, applying Alloy's fixes, updating, setting memory,
+  editing a config (shown as a diff) and a test start each show a card first: Allow or
+  Decline. Deleting always asks. The first change to an instance makes a save point.
+- **Quick or Think harder.** Quick answers with Claude Haiku; Think harder uses Claude
+  Sonnet for knotty crashes and pack building.
+- **Free with an AlloyMC account** (confirmed email, linked Minecraft account). Each person
+  has a daily and monthly share, shown under the message box; the key and the budget stay
+  on AlloyMC's server, your files stay on your computer except what a tool's answer says.
+- **Conversations are kept** on this computer; pick up an earlier one from the history.
+
+Fixes:
+
+- **Long mod lists no longer go blank.** In packs with more than 60 mods, scrolling past the
+  first screenful showed empty space instead of the rest of the list.
+- **No more "installed twice" in 1.12.2 packs that start fine.** Forge 1.12 loads the mods
+  its classes declare (`@Mod`); `mcmod.info` only describes them, and copied ones are
+  common: DragonMurder ships PlaneFix's, so SkyFactory 4 showed PlaneFix twice. Alloy now
+  reads the classes too. SkyFactory 4.2.4 and RLCraft 2.9.3 check clean.
+- **The CurseForge window is offered as soon as a pack is unpacked**, not only after the
+  game files are installed (which can take minutes for Forge), and the offer closes by
+  itself if the files turn up in your Downloads folder in the meantime.
+- **Less lag while Alloy works.** The game's output reaches the window in batches ten
+  times a second instead of an event per line (a modded start prints thousands), and
+  download progress updates eight times a second instead of sixteen.
+
 ## 0.3.3
 
 - **The CurseForge window downloads on Windows.** It used to show CurseForge's

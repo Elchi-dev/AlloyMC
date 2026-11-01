@@ -39,7 +39,7 @@ interface State {
   setGame: (id: string, s: "starting" | "running" | undefined) => void;
 
   logs: Record<string, LogLine[]>;
-  pushLog: (id: string, l: LogLine) => void;
+  pushLogs: (id: string, l: LogLine[]) => void;
   clearLogs: (id: string) => void;
 
   toasts: Toast[];
@@ -97,6 +97,8 @@ interface State {
 }
 
 const MAX_LOG = 5000;
+/** When each instance last got the CurseForge prompt. */
+const prompted = new Map<string, number>();
 let toastId = 0;
 
 export const useStore = create<State>((set, get) => ({
@@ -123,11 +125,10 @@ export const useStore = create<State>((set, get) => ({
   setGame: (id, v) => set((s) => ({ game: { ...s.game, [id]: v } })),
 
   logs: {},
-  pushLog: (id, l) =>
+  pushLogs: (id, l) =>
     set((s) => {
-      const cur = s.logs[id] ?? [];
-      const next = cur.length >= MAX_LOG ? [...cur.slice(cur.length - MAX_LOG + 1), l] : [...cur, l];
-      return { logs: { ...s.logs, [id]: next } };
+      const next = [...(s.logs[id] ?? []), ...l];
+      return { logs: { ...s.logs, [id]: next.length > MAX_LOG ? next.slice(next.length - MAX_LOG) : next } };
     }),
   clearLogs: (id) => set((s) => ({ logs: { ...s.logs, [id]: [] } })),
 
@@ -167,7 +168,12 @@ export const useStore = create<State>((set, get) => ({
   closeMenu: () => set({ menu: null }),
 
   curseforgePrompt: null,
-  setCurseForgePrompt: (curseforgePrompt) => set({ curseforgePrompt }),
+  setCurseForgePrompt: (p) => {
+    // Once per instance: the import announces it early, the finished install again.
+    if (p && Date.now() - (prompted.get(p.instanceId) ?? 0) < 15 * 60_000) return;
+    if (p) prompted.set(p.instanceId, Date.now());
+    set({ curseforgePrompt: p });
+  },
 
   crash: null,
   setCrash: (crash) => set({ crash }),

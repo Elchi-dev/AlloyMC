@@ -765,5 +765,13 @@ html[data-motion="off"] *::after {
 .prose-alloy hr { border-color: var(--color-line); margin: 1.4em 0; }
 .prose-alloy iframe { max-width: 100%; border-radius: 8px; }
 
+/* Claude's replies in the assistant panel: the same prose, tighter. */
+.prose-chat { font-size: 13.5px; line-height: 1.6; color: var(--color-ink); }
+.prose-chat > :first-child { margin-top: 0; } .prose-chat > :last-child { margin-bottom: 0; }
+.prose-chat p, .prose-chat ul, .prose-chat ol, .prose-chat pre, .prose-chat blockquote, .prose-chat table { margin: 0.5em 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-size: 14px; margin: 0.9em 0 0.3em; }
+.prose-chat li + li { margin-top: 0.2em; }
+.prose-chat strong { color: var(--color-ink); font-weight: 650; }
+
 /* Selected rows in lists (shift/ctrl-click). */
 .row-selected { background: color-mix(in srgb, var(--color-gold) 9%, transparent) !important; box-shadow: inset 2px 0 0 var(--color-gold); }

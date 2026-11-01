@@ -246,16 +246,32 @@ async fn run_bisect(app: AppHandle, id: String, job_id: String) -> Result<Found>
 
 /// Starts the game once and watches it: a crash before the title screen, or the title screen.
 async fn run_trial(app: &AppHandle, instance_id: &str, cmd: &launch::LaunchCommand) -> Result<Outcome> {
+    run_trial_kept(app, instance_id, cmd, None).await.map(|(o, _)| o)
+}
+
+/// [`run_trial`], keeping the game's last lines in `keep` and returning the exit code of a crash.
+async fn run_trial_kept(
+    app: &AppHandle,
+    instance_id: &str,
+    cmd: &launch::LaunchCommand,
+    keep: Option<Arc<std::sync::Mutex<std::collections::VecDeque<String>>>>,
+) -> Result<(Outcome, Option<i32>)> {
     let (menu_tx, mut menu_rx) = tokio::sync::watch::channel(false);
-    let log_app = app.clone();
-    let log_id = instance_id.to_string();
+    let game_log = crate::commands::GameLog::start(app, instance_id);
     let child = launch::spawn(
         cmd,
         Arc::new(move |line| {
             if crash::reached_menu(&line.line) {
                 let _ = menu_tx.send(true);
             }
-            let _ = log_app.emit("game-log", serde_json::json!({ "instanceId": log_id, "stream": line.stream, "line": line.line }));
+            if let Some(k) = &keep {
+                let mut t = k.lock().unwrap();
+                if t.len() >= KEEP_LINES {
+                    t.pop_front();
+                }
+                t.push_back(line.line.clone());
+            }
+            game_log.push(&line);
         }),
     )?;
     let mut child = KillOnDrop(Some(child));
@@ -263,22 +279,79 @@ async fn run_trial(app: &AppHandle, instance_id: &str, cmd: &launch::LaunchComma
     let outcome = tokio::select! {
         status = c.wait() => {
             // It ended before the title screen: crashed (even "exit 0" there means it gave up).
-            let _ = status;
-            Outcome::Crashed
+            (Outcome::Crashed, Some(status.ok().and_then(|s| s.code()).unwrap_or(-1)))
         }
         _ = async { let _ = menu_rx.wait_for(|v| *v).await; } => {
             // Made it; give it a moment in case it falls over right after.
             match tokio::time::timeout(SETTLE, c.wait()).await {
-                Ok(Ok(s)) if !s.success() => Outcome::Crashed,
-                _ => Outcome::Started,
+                Ok(Ok(s)) if !s.success() => (Outcome::Crashed, Some(s.code().unwrap_or(-1))),
+                _ => (Outcome::Started, None),
             }
         }
-        _ = tokio::time::sleep(TRIAL_LIMIT) => Outcome::Started,
+        _ = tokio::time::sleep(TRIAL_LIMIT) => (Outcome::Started, None),
     };
     if let Some(mut c) = child.0.take() {
         let _ = c.kill().await;
     }
     Ok(outcome)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestLaunch {
+    pub started: bool,
+    pub diagnosis: Option<Diagnosis>,
+}
+
+/// Starts the instance once to see whether it reaches the title screen, then closes it. A
+/// crash gets the crash doctor's diagnosis, saved like any other.
+#[tauri::command]
+pub async fn test_launch(app: AppHandle, state: State<'_, AppState>, instance_id: String) -> Result<TestLaunch> {
+    if state.running.lock().unwrap().contains_key(&instance_id) {
+        return Err(Error::other("The game is running. Close it first."));
+    }
+    if !state.bisecting.lock().unwrap().insert(instance_id.clone()) {
+        return Err(Error::other("This instance is already being tested."));
+    }
+    struct Done(AppHandle, String);
+    impl Drop for Done {
+        fn drop(&mut self) {
+            self.0.state::<AppState>().bisecting.lock().unwrap().remove(&self.1);
+        }
+    }
+    let _done = Done(app.clone(), instance_id.clone());
+    let launcher = state.launcher.clone();
+    let mut inst = instance::get(&launcher, &instance_id).await?;
+    let title = format!("Test-starting {}", inst.name);
+    let job_id = format!("test:{instance_id}");
+    let a = app.clone();
+    jobs::run(&app, &job_id.clone(), title, Some(instance_id.clone()), None, async move {
+        let state = a.state::<AppState>();
+        let account_id = match inst.account.clone() {
+            Some(x) => x,
+            None => state.accounts.list().await?.1.ok_or_else(|| Error::other("Add an account before playing"))?,
+        };
+        let session = state.accounts.session(&account_id).await?;
+        if inst.install_state != instance::InstallState::Installed {
+            crate::commands::run_install(&a, &inst.id, &job_id, false).await?;
+            inst = instance::get(&launcher, &inst.id).await?;
+        }
+        let resolved = install::resolve(&launcher, &inst).await?;
+        let cmd = launch::prepare(&launcher, &inst, &resolved, &session, &LaunchOptions::default()).await?;
+        let progress = progress_emitter(&a, &job_id, None);
+        progress(Progress { stage: Stage::Starting, current: 0, total: 1, unit: Unit::Steps, message: Some("Waiting for the title screen".into()), files: None });
+        let keep: Arc<std::sync::Mutex<std::collections::VecDeque<String>>> = Arc::default();
+        let started = chrono::Utc::now().timestamp();
+        let (outcome, code) = run_trial_kept(&a, &inst.id, &cmd, Some(keep.clone())).await?;
+        if matches!(outcome, Outcome::Started) {
+            crash::forget(&launcher, &inst).await;
+            return Ok(TestLaunch { started: true, diagnosis: None });
+        }
+        let lines: Vec<String> = keep.lock().unwrap().drain(..).collect();
+        after_exit(&a, &inst, started, code, lines).await;
+        Ok(TestLaunch { started: false, diagnosis: crash::last(&launcher, &inst).await })
+    })
+    .await
 }
 
 /// Cleans up after a bisect Alloy was closed during.

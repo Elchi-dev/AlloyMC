@@ -1,6 +1,8 @@
 // Asks once, right after an install, whether to fetch the files CurseForge only hands out on
 // its website in Alloy's CurseForge window.
 
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { api } from "../lib/api";
 import { toastError, useStore } from "../lib/store";
@@ -15,7 +17,12 @@ export function CurseForgePrompt() {
     close();
     api.curseforgeWindow(p.instanceId).catch(toastError);
   };
-  const n = p?.count ?? 0;
+  // What's still missing now: files already in Downloads are picked up on their own.
+  const live = useQuery({ queryKey: ["blocked", p?.instanceId], queryFn: () => api.blockedFiles(p!.instanceId), enabled: !!p, refetchInterval: 4000 });
+  const n = live.data?.length ?? p?.count ?? 0;
+  useEffect(() => {
+    if (p && live.data && live.data.length === 0) close();
+  }, [p, live.data]);
   return (
     <Dialog open={!!p} onClose={close} title="Files from CurseForge's website" width={500}>
       <div className="flex flex-col gap-4 p-5">

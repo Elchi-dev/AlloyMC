@@ -4,7 +4,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, Check, CircleAlert, Play, Wrench } from "lucide-react";
+import { AlertTriangle, Check, CircleAlert, Play, Sparkles, Wrench } from "lucide-react";
+import { useAssistant } from "../lib/assistant";
 import { api } from "../lib/api";
 import { useInstance } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
@@ -172,6 +173,14 @@ export function PreflightDialog() {
             {!clean && (
               <button className="btn btn-quiet" onClick={() => (close(), go({ name: "instance", id: pf.instanceId, tab: "content" }))}>
                 Open content
+              </button>
+            )}
+            {!clean && (
+              <button
+                className="btn btn-quiet"
+                onClick={() => (close(), useAssistant.getState().ask("Alloy's check found problems with this instance. What's wrong, and can you fix it?", pf.instanceId))}
+              >
+                <Sparkles size={14} /> Ask the assistant
               </button>
             )}
             <span className="ml-auto" />

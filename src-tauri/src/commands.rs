@@ -2,7 +2,7 @@
 //! Long jobs report through events:
 //!   job-progress  { jobId, instanceId?, progress }
 //!   game-state    { instanceId, state: "starting" | "running" | "exited", exitCode? }
-//!   game-log      { instanceId, stream, line }
+//!   game-log      { instanceId, lines: [{ stream, line }] }, batched
 //!   instances-changed / accounts-changed  (no payload; UI refetches)
 
 use std::path::PathBuf;
@@ -49,7 +49,7 @@ pub(crate) fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Optio
             let stage_changed = l.1 != Some(p.stage);
             // A total of 0 means "unknown" (a download without a length), not "finished".
             let finished = p.total > 0 && p.current >= p.total;
-            if !stage_changed && !finished && l.0.elapsed() < Duration::from_millis(60) {
+            if !stage_changed && !finished && l.0.elapsed() < Duration::from_millis(125) {
                 return;
             }
             *l = (Instant::now(), Some(p.stage));
@@ -57,6 +57,48 @@ pub(crate) fn progress_emitter(app: &AppHandle, job_id: &str, instance_id: Optio
         app.state::<Jobs>().set_progress(&job_id, &p);
         let _ = app.emit("job-progress", JobProgress { job_id: job_id.clone(), instance_id: instance_id.clone(), progress: p });
     })
+}
+
+/// The game's output for the window, sent ten times a second in batches: a modded start
+/// prints thousands of lines, and an event per line kept the window busy enough to lag.
+pub(crate) struct GameLog {
+    app: AppHandle,
+    instance_id: String,
+    buf: Mutex<Vec<serde_json::Value>>,
+}
+
+impl GameLog {
+    pub(crate) fn start(app: &AppHandle, instance_id: &str) -> Arc<Self> {
+        let log = Arc::new(Self { app: app.clone(), instance_id: instance_id.into(), buf: Mutex::default() });
+        let weak = Arc::downgrade(&log);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                match weak.upgrade() {
+                    Some(l) => l.flush(),
+                    None => break,
+                }
+            }
+        });
+        log
+    }
+
+    pub(crate) fn push(&self, line: &launch::LogLine) {
+        self.buf.lock().unwrap().push(serde_json::json!({ "stream": line.stream, "line": line.line }));
+    }
+
+    fn flush(&self) {
+        let lines = std::mem::take(&mut *self.buf.lock().unwrap());
+        if !lines.is_empty() {
+            let _ = self.app.emit("game-log", serde_json::json!({ "instanceId": self.instance_id, "lines": lines }));
+        }
+    }
+}
+
+impl Drop for GameLog {
+    fn drop(&mut self) {
+        self.flush();
+    }
 }
 
 pub(crate) fn changed(app: &AppHandle, what: &str) {
@@ -340,8 +382,7 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
     };
     let cmd = launch::prepare(launcher, &inst, &resolved, &session, &opts).await?;
 
-    let log_app = app.clone();
-    let log_id = id.to_string();
+    let game_log = GameLog::start(app, id);
     // The last lines, for the crash doctor.
     let tail: Arc<Mutex<std::collections::VecDeque<String>>> = Arc::default();
     let keep = tail.clone();
@@ -355,7 +396,7 @@ async fn launch_inner(app: &AppHandle, state: &AppState, id: &str, quick_play: O
                 }
                 t.push_back(line.line.clone());
             }
-            let _ = log_app.emit("game-log", serde_json::json!({ "instanceId": log_id, "stream": line.stream, "line": line.line }));
+            game_log.push(&line);
         }),
     )?;
 

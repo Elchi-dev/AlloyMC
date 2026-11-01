@@ -19,7 +19,7 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 | `install` | Client jar, libraries, natives, assets, logging config; quick (size) or repair (hash) verification |
 | `java` | Mojang's Java runtimes per version component; system Java detection |
 | `launch` | Argument building, legacy natives, process spawn with line-by-line output |
-| `content` | Modrinth and CurseForge clients and the content engine: `jarmeta` (what jars say), `scan` (cached per file, writes `alloy.lock`), `check` (pre-launch check and dependency graph), `manage` (installs, updates, fixes), `identify` (names unknown files), `listed` and `blocked` (files packs list, CurseForge-only downloads), `links` |
+| `content` | Modrinth and CurseForge clients and the content engine: `jarmeta` (what jars say), `annotations` (the `@Mod` ids Forge 1.12 really loads, read from class files), `scan` (cached per file, writes `alloy.lock`), `check` (pre-launch check and dependency graph), `manage` (installs, updates, fixes), `identify` (names unknown files), `listed` and `blocked` (files packs list, CurseForge-only downloads), `links` |
 | `system` | Installed memory and other machine facts |
 | `modpack` | `.mrpack` and CurseForge `.zip` import from file or URL |
 | `textures` | Block textures read from Mojang's client jar with HTTP range requests |
@@ -29,11 +29,12 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 | `savepoint` | Save points: the setup folders of an instance, stored by SHA-1 under `<data>/savepoints`, restore with an automatic undo point, garbage collection |
 | `export` | `.mrpack` and CurseForge `.zip` export: files listed by reference where the platform knows them, the rest bundled |
 | `importers` | Finds and copies instances of Prism Launcher, MultiMC, the CurseForge App and the Modrinth App (SQLite `app.db`, read-only) |
+| `assistant` | The assistant's side in Alloy: the relay client (streams Claude's reply from AlloyMC and assembles whole content blocks), guarded file access for its tools (reads in configs, logs and crash reports; writes to configs only), saved conversations |
 | `download` | Parallel, retrying, hash-checked downloads written via `.part` + rename |
 
 `examples/` holds runnable checks: `smoke` (create, install, launch any loader), `pack`
 (install, scan and check a Modrinth pack), `check`, `content` (install, fixes, updates,
-blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `update` (ask AlloyMC for a release, download and verify it), `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
+blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `update` (ask AlloyMC for a release, download and verify it), `cfpack` (install a CurseForge pack file and check it), `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
 xvfb-run), `alloymc` (sign in
 to a running alloy-server and back out).
 
@@ -47,19 +48,23 @@ cancellable and retryable. Long jobs report through events:
 | --- | --- |
 | `job-progress` | `{ jobId, instanceId?, progress: { stage, current, total, unit } }` |
 | `game-state` | `{ instanceId, state: starting / running / exited, exitCode?, error? }` |
-| `game-log` | `{ instanceId, stream, line }` |
+| `game-log` | `{ instanceId, lines: [{ stream, line }] }`, batched ten times a second |
+| `curseforge-needed` | `{ instanceId, count }` right after a pack import leaves files only CurseForge's website hands out |
 | `jobs-changed` | the full job list |
 | `net-speed` | `{ bytesPerSec }`, twice a second while anything downloads |
 | `blocked-collected` | `{ instanceId, titles }` when a CurseForge file arrived in Downloads |
 | `savepoints-changed` | none; the Save points tab refetches |
 | `crash-diagnosis` | `{ instanceId, diagnosis }` after a run that crashed |
+| `assistant-delta` | `{ requestId, delta: { type: text, index, text } or { type: tool, index, id, name } }` while Claude writes |
 | `bisect-progress` | `{ instanceId, step? , found?, error? }` while the crash doctor tests |
 | `instances-changed`, `accounts-changed`, `alloymc-changed`, `content-changed`, `blocked-changed`, `textures-ready` | none; the UI refetches |
 
 `ms_login.rs` opens Microsoft's page in a private webview and reads the auth code from the
 redirect. `alloymc.rs` signs in to AlloyMC the other way round: the person's own browser
 (Google blocks embedded webviews) with the code coming back to a one-shot listener on
-127.0.0.1 (RFC 8252). `secrets.rs` stores refresh tokens in the OS keychain with a file fallback.
+127.0.0.1 (RFC 8252). `assistant.rs` streams the assistant's replies and gives its file tools their guarded access;
+`doctor::test_launch` starts an instance once to see if it reaches the title screen.
+`secrets.rs` stores refresh tokens in the OS keychain with a file fallback.
 `alloy --fetch-assets [dir]` runs headless for installers.
 
 ## Frontend (src/)
@@ -67,7 +72,11 @@ redirect. `alloymc.rs` signs in to AlloyMC the other way round: the person's own
 - `lib/api.ts`: typed command wrappers; falls back to `lib/mock.ts` outside Tauri.
 - `lib/queries.ts`: TanStack Query hooks, persisted to localStorage so the first frame has data.
 - `lib/store.ts`: Zustand for navigation, progress, game state, logs, toasts, textures.
-- `components/`: `Backdrop` (forge scene), `Logo`, `PlayButton` + `MoltenFx`, `ori/Ori`.
+- `lib/assistant.ts`: the assistant's conversation loop and its tools. Tools run through the
+  same commands as Alloy's buttons; tools that change something wait for the player to
+  allow them, and the first change to an instance in a conversation makes a save point.
+  AlloyMC's server holds the key, the system prompt and the tool definitions, and meters use.
+- `components/`: `Assistant` (the panel), `Backdrop` (forge scene), `Logo`, `PlayButton` + `MoltenFx`, `ori/Ori`.
 - `pages/`: Home and Library load eagerly; Instance, Discover and Settings lazily, prefetched when idle.
 
 ## On disk
@@ -85,6 +94,7 @@ redirect. `alloymc.rs` signs in to AlloyMC the other way round: the person's own
   instances/<id>/.launcher/crash.json     the last crash diagnosis, until dismissed
   instances/<id>/.launcher/bisect.json    which mods were on, while the crash doctor tests
   meta/installers/                        Forge/NeoForge installers and their processor results
+  assistant/<id>.json             saved assistant conversations
   trash/                          deleted instances, kept until you empty it
   savepoints/objects/             files of every save point, by SHA-1, stored once
   savepoints/instances/<id>/      one manifest per save point

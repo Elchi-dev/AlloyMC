@@ -1,7 +1,7 @@
 // The Content tab: what's installed, what's wrong, what's out of date, and what needs a
 // hand-download from CurseForge, all from one overview call.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { contentMenu } from "../lib/menus";
 import { listen } from "../lib/bus";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -330,13 +330,43 @@ function Orphans({ instance, overview }: { instance: Instance; overview: Overvie
   );
 }
 
+/** The nearest ancestor that scrolls: the instance page has its own, inside `main`. */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === "auto" || o === "scroll") return p;
+  }
+  return null;
+}
+
 function List(props: { instance: Instance; rows: ContentItem[]; byPath: Map<string, ContentItem>; problems: Map<string, Problem[]>; selected: Set<string>; onSelect: (p: string, e: React.MouseEvent) => void }) {
   const { rows } = props;
   const box = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Long lists are virtualised; short ones keep their entrance animation.
   const virtual = rows.length > 60;
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => box.current?.closest("main") ?? null, estimateSize: () => 57, overscan: 12, enabled: virtual });
+  // The page scrolls, not the list: tell the virtualiser where the list starts in the page,
+  // or it shows the wrong rows (and blank space) once the header is scrolled away.
+  const [margin, setMargin] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    const main = scrollParent(el);
+    if (!virtual || !el || !main) return;
+    const measure = () => setMargin(Math.round(el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(main);
+    if (main.firstElementChild) ro.observe(main.firstElementChild);
+    return () => ro.disconnect();
+  }, [virtual]);
+  const v = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollParent(box.current),
+    estimateSize: () => 57,
+    overscan: 12,
+    enabled: virtual,
+    scrollMargin: margin,
+  });
   if (!virtual) {
     return (
       <div ref={box} className="overflow-hidden rounded-[10px] border border-line-soft">
@@ -352,7 +382,7 @@ function List(props: { instance: Instance; rows: ContentItem[]; byPath: Map<stri
         {v.getVirtualItems().map((r) => {
           const c = rows[r.index];
           return (
-            <div key={c.path} data-index={r.index} ref={v.measureElement} className="absolute inset-x-0" style={{ transform: `translateY(${r.start}px)` }}>
+            <div key={c.path} data-index={r.index} ref={v.measureElement} className="absolute inset-x-0" style={{ transform: `translateY(${r.start - margin}px)` }}>
               <Row {...props} item={c} index={0} expanded={expanded === c.path} toggle={() => setExpanded((e) => (e === c.path ? null : c.path))} />
             </div>
           );
