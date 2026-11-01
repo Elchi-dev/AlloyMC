@@ -94,6 +94,8 @@ pub struct AssetIndexRef {
 pub struct VersionDownloads {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<Artifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<Artifact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

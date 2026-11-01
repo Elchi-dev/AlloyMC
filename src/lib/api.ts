@@ -13,6 +13,28 @@ import type {
 
 import type { AssistantStatus, Block, Chat, ChatSummary, Mode, Msg } from "./assistant";
 
+export interface ServerPackReport {
+  dir: string;
+  mods: number;
+  leftOut: string[];
+  start: string;
+  javaMajor: number;
+  eulaAccepted: boolean;
+}
+
+export interface ProjectCard {
+  platform: Platform;
+  id: string;
+  title: string;
+  description: string;
+  author?: string | null;
+  iconUrl?: string | null;
+  image?: string | null;
+  downloads: number;
+  url: string;
+  kind: string;
+}
+
 type ImportResult = { instance: Instance; blocked: BlockedFile[] };
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -140,6 +162,7 @@ export const api = {
   savepointDelete: (instanceId: string, pointId: string) => call<void>("savepoint_delete", { instanceId, pointId }),
   exportCandidates: (instanceId: string) => call<ExportCandidate[]>("export_candidates", { instanceId }),
   exportInstance: (instanceId: string, options: ExportOptions) => call<ExportReport>("export_instance", { instanceId, options }),
+  makeServerPack: (instanceId: string, dest: string, acceptEula: boolean) => call<ServerPackReport>("make_server_pack", { instanceId, dest, acceptEula }),
   packSource: (instanceId: string) => call<Instance["linkedPack"] | null>("pack_source", { instanceId }),
   curseforgeWindow: (instanceId: string) => call<void>("curseforge_window", { instanceId }),
   importDiscover: () => call<FoundInstance[]>("import_discover"),
@@ -155,7 +178,10 @@ export const api = {
   assistantCurrentText: (instanceId: string, path: string) => call<string | null>("assistant_current_text", { instanceId, path }),
   assistantWriteFile: (instanceId: string, path: string, content: string) => call<void>("assistant_write_file", { instanceId, path, content }),
   assistantReadLog: (instanceId: string, lines?: number, contains?: string) => call<string>("assistant_read_log", { instanceId, lines, contains }),
-  assistantCheckpoint: (instanceId: string) => call<void>("assistant_checkpoint", { instanceId }),
+  assistantCheckpoint: (instanceId: string, label?: string) => call<string | null>("assistant_checkpoint", { instanceId, label }),
+  assistantMemory: () => call<string[]>("assistant_memory"),
+  assistantMemorySet: (notes: string[]) => call<void>("assistant_memory_set", { notes }),
+  projectCards: (platform: Platform, ids: string[]) => call<ProjectCard[]>("project_cards", { platform, ids }),
   assistantChats: () => call<ChatSummary[]>("assistant_chats"),
   assistantChat: (id: string) => call<Chat>("assistant_chat", { id }),
   assistantChatSave: (chat: Chat) => call<void>("assistant_chat_save", { chat }),

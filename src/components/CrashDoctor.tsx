@@ -1,11 +1,12 @@
 // The crash doctor: opens when the game crashes, says what happened and which mod it points
 // at, offers the fixes, and can find the mod by starting the game with halves of the mods off.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronDown, FileText, FlaskConical, Play, PowerOff, ScrollText, Sparkles, X } from "lucide-react";
-import { useAssistant } from "../lib/assistant";
+import { ChevronDown, ChevronRight, FileText, FlaskConical, Play, PowerOff, ScrollText, Sparkles, X } from "lucide-react";
+import { explainCrash, useAssistant } from "../lib/assistant";
+import { Markdown } from "./Assistant";
 import { api } from "../lib/api";
 import { useInstance } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
@@ -97,6 +98,8 @@ function CrashDoctor({ instanceId, diagnosis: d, onClose }: { instanceId: string
           <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">{d.detail}</p>
         </div>
       </div>
+
+      <PlainWords key={d.at} instanceId={instanceId} />
 
       {d.suspects.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -303,5 +306,67 @@ export function CrashBanner({ instanceId }: { instanceId: string }) {
         <X size={14} />
       </button>
     </motion.div>
+  );
+}
+
+/** Claude explains the crash in a few plain sentences, right here. */
+function PlainWords({ instanceId }: { instanceId: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const signal = useRef({ stopped: false });
+  useEffect(() => {
+    const s = signal.current;
+    s.stopped = false;
+    return () => void (s.stopped = true);
+  }, []);
+  const run = async () => {
+    setState("busy");
+    setText("");
+    try {
+      await explainCrash(instanceId, setText, signal.current);
+      setState("done");
+    } catch (e) {
+      setError(String(e));
+      setState("error");
+    }
+  };
+  if (state === "idle")
+    return (
+      <button className="group flex items-center gap-2.5 self-start rounded-[10px] border border-line-soft bg-slate-900/70 px-3 py-2 text-[13px] text-ink-2 transition-colors hover:border-gold/40 hover:text-ink" onClick={run}>
+        <Sparkles size={14} className="text-gold" /> Explain it in plain words
+      </button>
+    );
+  return (
+    <div className="rounded-[10px] border border-gold/25 bg-gradient-to-b from-gold/[0.06] to-transparent px-4 py-3">
+      <p className="flex items-center gap-2 text-[12px] font-medium text-gold">
+        <Sparkles size={13} /> In plain words
+        {state === "busy" && <span className="spinner ml-1" />}
+      </p>
+      {state === "error" ? (
+        <p className="mt-1.5 text-[13px] text-ink-2">{error}</p>
+      ) : text ? (
+        <div className="mt-1.5">
+          <Markdown text={text} />
+        </div>
+      ) : (
+        <p className="mt-1.5 text-[13px] text-ink-3">Claude is reading the crash report and the log…</p>
+      )}
+      {state === "done" && (
+        <button
+          className="mt-2.5 flex items-center gap-1.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+          onClick={() => {
+            const a = useAssistant.getState();
+            if (!a.busy) {
+              if (a.messages.length) a.reset();
+              a.setInstance(instanceId);
+            }
+            a.setOpen(true);
+          }}
+        >
+          Ask a follow-up <ChevronRight size={13} />
+        </button>
+      )}
+    </div>
   );
 }

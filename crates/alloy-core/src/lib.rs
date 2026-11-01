@@ -8,6 +8,7 @@ pub mod assistant;
 pub mod bisect;
 pub mod crash;
 pub mod savepoint;
+pub mod serverpack;
 pub mod export;
 pub mod importers;
 pub mod auth;

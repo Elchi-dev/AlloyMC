@@ -30,11 +30,12 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 | `export` | `.mrpack` and CurseForge `.zip` export: files listed by reference where the platform knows them, the rest bundled |
 | `importers` | Finds and copies instances of Prism Launcher, MultiMC, the CurseForge App and the Modrinth App (SQLite `app.db`, read-only) |
 | `assistant` | The assistant's side in Alloy: the relay client (streams Claude's reply from AlloyMC and assembles whole content blocks), guarded file access for its tools (reads in configs, logs and crash reports; writes to configs only), saved conversations |
+| `serverpack` | A dedicated server from an instance: the vanilla, Fabric, Quilt, Forge or NeoForge server, mods without client-only ones (jar `environment`, Modrinth `server_side`, a short list of renderers), configs and scripts, start scripts, `eula.txt` |
 | `download` | Parallel, retrying, hash-checked downloads written via `.part` + rename |
 
 `examples/` holds runnable checks: `smoke` (create, install, launch any loader), `pack`
 (install, scan and check a Modrinth pack), `check`, `content` (install, fixes, updates,
-blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `update` (ask AlloyMC for a release, download and verify it), `cfpack` (install a CurseForge pack file and check it), `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
+blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `update` (ask AlloyMC for a release, download and verify it), `cfpack` (install a CurseForge pack file and check it), `serverpack` (make an instance, build its server and start it until it's ready), `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
 xvfb-run), `alloymc` (sign in
 to a running alloy-server and back out).
 

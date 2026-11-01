@@ -77,6 +77,10 @@ interface State {
   closeMenu: () => void;
 
   /** Files only CurseForge's website hands out just arrived; the prompt shows while set. */
+  /** The server pack dialog, for an instance. */
+  serverPack: string | null;
+  setServerPack: (id: string | null) => void;
+
   curseforgePrompt: { instanceId: string; count: number } | null;
   setCurseForgePrompt: (p: { instanceId: string; count: number } | null) => void;
 
@@ -167,6 +171,8 @@ export const useStore = create<State>((set, get) => ({
   },
   closeMenu: () => set({ menu: null }),
 
+  serverPack: null,
+  setServerPack: (serverPack) => set({ serverPack }),
   curseforgePrompt: null,
   setCurseForgePrompt: (p) => {
     // Once per instance: the import announces it early, the finished install again.

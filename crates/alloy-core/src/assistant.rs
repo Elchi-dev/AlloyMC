@@ -240,9 +240,9 @@ impl Assembler {
 // ---------- files ----------
 
 /// Folders (and files) inside an instance the assistant may read.
-const READABLE: &[&str] = &["config", "defaultconfigs", "kubejs", "logs", "crash-reports", "options.txt"];
+const READABLE: &[&str] = &["config", "defaultconfigs", "kubejs", "scripts", "logs", "crash-reports", "options.txt"];
 /// What it may write: configs only.
-const WRITABLE: &[&str] = &["config", "defaultconfigs", "kubejs", "options.txt"];
+const WRITABLE: &[&str] = &["config", "defaultconfigs", "kubejs", "scripts", "options.txt"];
 /// Text files only, and only this much of one.
 const READ_LIMIT: usize = 40_000;
 const WRITE_LIMIT: usize = 512 * 1024;
@@ -389,6 +389,12 @@ pub struct Chat {
     pub labels: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub mode: Option<String>,
+    /// The save point made before each change, by tool use id, for "Undo to here".
+    #[serde(default)]
+    pub undo: std::collections::BTreeMap<String, Value>,
+    /// The approved pack plan, if any.
+    #[serde(default)]
+    pub plan: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,6 +423,9 @@ pub async fn chats(launcher: &Launcher) -> Vec<ChatSummary> {
     let Ok(mut rd) = tokio::fs::read_dir(chats_dir(launcher)).await else { return out };
     while let Ok(Some(e)) = rd.next_entry().await {
         let Ok(b) = tokio::fs::read(e.path()).await else { continue };
+        if e.file_name() == "memory.json" {
+            continue;
+        }
         if let Ok(c) = serde_json::from_slice::<Chat>(&b) {
             out.push(ChatSummary { id: c.id, title: c.title, instance_id: c.instance_id, updated: c.updated });
         }
@@ -434,6 +443,22 @@ pub async fn save_chat(launcher: &Launcher, c: &Chat) -> Result<()> {
     let path = chat_path(launcher, &c.id)?;
     tokio::fs::create_dir_all(chats_dir(launcher)).await?;
     crate::util::write_atomic(&path, &serde_json::to_vec(c)?).await
+}
+
+/// Notes the player let the assistant keep across conversations.
+fn memory_path(launcher: &Launcher) -> PathBuf {
+    chats_dir(launcher).join("memory.json")
+}
+
+pub async fn memory(launcher: &Launcher) -> Vec<String> {
+    let Ok(b) = tokio::fs::read(memory_path(launcher)).await else { return vec![] };
+    serde_json::from_slice(&b).unwrap_or_default()
+}
+
+pub async fn set_memory(launcher: &Launcher, notes: &[String]) -> Result<()> {
+    tokio::fs::create_dir_all(chats_dir(launcher)).await?;
+    let notes: Vec<String> = notes.iter().map(|n| n.trim().chars().take(200).collect::<String>()).filter(|n| !n.is_empty()).take(50).collect();
+    crate::util::write_atomic(&memory_path(launcher), &serde_json::to_vec_pretty(&notes)?).await
 }
 
 pub async fn delete_chat(launcher: &Launcher, id: &str) -> Result<()> {

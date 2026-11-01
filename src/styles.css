@@ -821,3 +821,13 @@ html[data-motion="off"] *::after {
 
 /* Selected rows in lists (shift/ctrl-click). */
 .row-selected { background: color-mix(in srgb, var(--color-gold) 9%, transparent) !important; box-shadow: inset 2px 0 0 var(--color-gold); }
+
+/* The assistant's pack plan in the conversation. */
+.ai-plan {
+  margin: 4px 0; border-radius: 14px; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 30%, var(--color-line));
+  background:
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--color-gold) 9%, transparent), transparent 60%),
+    var(--color-slate-850);
+  box-shadow: 0 14px 34px -20px rgb(0 0 0 / 0.85), inset 0 1px 0 rgb(255 255 255 / 0.03);
+}

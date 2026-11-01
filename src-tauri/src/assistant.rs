@@ -86,15 +86,33 @@ pub async fn assistant_read_log(state: State<'_, AppState>, instance_id: String,
     assistant::read_log(&state.launcher, &inst, lines.unwrap_or(120), contains.as_deref()).await
 }
 
-/// An automatic save point before the assistant's first change to an instance in a conversation.
+/// An automatic save point before one of the assistant's changes; its id, for undo.
 #[tauri::command]
-pub async fn assistant_checkpoint(app: AppHandle, state: State<'_, AppState>, instance_id: String) -> Result<()> {
+pub async fn assistant_checkpoint(app: AppHandle, state: State<'_, AppState>, instance_id: String, label: Option<String>) -> Result<Option<String>> {
     if state.running.lock().unwrap().contains_key(&instance_id) {
-        return Ok(());
+        return Ok(None);
     }
     let inst = instance::get(&state.launcher, &instance_id).await?;
-    crate::packs::auto_savepoint(&app, &inst, "Before the assistant's changes").await;
-    Ok(())
+    let label = label.unwrap_or_else(|| "Before the assistant's changes".into());
+    let point = alloy_core::savepoint::create(&state.launcher, &inst, &label, true).await;
+    let _ = app.emit("savepoints-changed", ());
+    match point {
+        Ok(p) => Ok(Some(p.id)),
+        Err(e) => {
+            tracing::warn!("assistant save point failed: {e}");
+            Ok(None)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn assistant_memory(state: State<'_, AppState>) -> Result<Vec<String>> {
+    Ok(assistant::memory(&state.launcher).await)
+}
+
+#[tauri::command]
+pub async fn assistant_memory_set(state: State<'_, AppState>, notes: Vec<String>) -> Result<()> {
+    assistant::set_memory(&state.launcher, &notes).await
 }
 
 #[tauri::command]

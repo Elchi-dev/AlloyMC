@@ -9,13 +9,14 @@ crash doctor with auto-bisect, save points, export, imports from other launchers
 (updates arrive by themselves). 0.3.2: the CurseForge window, right-click menus, "About this
 pack", a check that follows what the loader really loads, and a launcher that no longer
 goes blank while the game runs. 0.4.0: the Claude assistant (server relay with budgets,
-tools in Alloy, approvals, saved conversations).
+tools in Alloy, approvals, saved conversations), 0.4.1 and 0.4.2 (design, batches, copy buttons).
 
 Next, in this order:
 
-1. **Assistant, round two:** plain-language crash explanations right inside the crash
-   doctor (without opening the panel), building whole packs from a brief with a test start
-   at the end, and the bisect as a tool.
+1. Shipped in 0.5.0: assistant pack plans, project cards, undo per reply, crash
+   explanations in the crash doctor, the crash search as a tool, memory, scripts, and
+   server packs. Next for the assistant: a test start at the end of a pack build by
+   default, and sharing a conversation.
 2. **Modpack updates** with a preview of what changes (added, removed, updated mods),
    keeping configs, a save point first. **Party packs and share links:**
    `alloymc.dev/p/<pack>` opens in Alloy, previews in Discord, keeps friends' copies in sync,

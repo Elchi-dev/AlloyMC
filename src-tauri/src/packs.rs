@@ -99,6 +99,23 @@ pub async fn export_instance(app: AppHandle, instance_id: String, options: Optio
     .await
 }
 
+// ---------- server packs ----------
+
+/// Builds a dedicated server from an instance into `dest` (an empty folder).
+#[tauri::command]
+pub async fn make_server_pack(app: AppHandle, instance_id: String, dest: PathBuf, accept_eula: bool) -> Result<alloy_core::serverpack::Report> {
+    let job_id = format!("server:{instance_id}");
+    let state = app.state::<AppState>();
+    let name = instance::get(&state.launcher, &instance_id).await?.name;
+    let (a, j) = (app.clone(), job_id.clone());
+    jobs::run(&app, &job_id, format!("Making a server from {name}"), Some(instance_id.clone()), None, async move {
+        let state = a.state::<AppState>();
+        let inst = instance::get(&state.launcher, &instance_id).await?;
+        alloy_core::serverpack::build(&state.launcher, &inst, &dest, accept_eula, None, &progress_emitter(&a, &j, Some(&instance_id))).await
+    })
+    .await
+}
+
 // ---------- import from other launchers ----------
 
 #[tauri::command]

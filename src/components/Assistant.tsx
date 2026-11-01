@@ -2,12 +2,31 @@
 // at instances, logs and crashes with tools that run in Alloy, and asks before it changes
 // anything.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { ArrowUp, Ban, BookOpen, Brain, Check, ChevronDown, ChevronLeft, Gauge, History, LogIn, Package, Sparkles, Square, SquarePen, Trash2, TriangleAlert, Wrench, X } from "lucide-react";
+import {
+  ArrowUp,
+  Ban,
+  BookOpen,
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  Gauge,
+  History,
+  LogIn,
+  Package,
+  Sparkles,
+  Square,
+  SquarePen,
+  Trash2,
+  TriangleAlert,
+  Wrench,
+  X,
+} from "lucide-react";
 import { api } from "../lib/api";
 import { useAssistant, userText, type Approval, type AssistantStatus, type BatchItem, type Block, type DiffLine, type Msg } from "../lib/assistant";
 import { openExternal } from "../lib/menus";
@@ -15,6 +34,7 @@ import { useInstance } from "../lib/queries";
 import { ago } from "../lib/format";
 import { toastError, useStore } from "../lib/store";
 import { Ori } from "./ori/Ori";
+import { PlanCard, ProjectCards, UndoBar } from "./AssistantCards";
 
 const WIDTH = 420;
 
@@ -32,7 +52,11 @@ export function AssistantButton() {
         open ? "bg-slate-800 text-gold" : "text-ink-3 hover:bg-slate-850 hover:text-ink"
       }`}
     >
-      <Sparkles size={19} strokeWidth={open ? 2.2 : 1.8} className={`relative transition-transform duration-200 group-hover:scale-110 ${busy ? "animate-pulse" : ""}`} />
+      <Sparkles
+        size={19}
+        strokeWidth={open ? 2.2 : 1.8}
+        className={`relative transition-transform duration-200 group-hover:scale-110 ${busy ? "animate-pulse" : ""}`}
+      />
       {waiting && !open && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-gold" />}
       <span className="pointer-events-none absolute left-[52px] z-50 -translate-x-1 whitespace-nowrap rounded-[6px] border border-line bg-slate-800 px-2 py-1 text-[12px] text-ink opacity-0 shadow-lg transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100">
         Assistant
@@ -88,7 +112,11 @@ export function AssistantPanel() {
 
 function Panel() {
   const [view, setView] = useState<"chat" | "history">("chat");
-  const status = useQuery({ queryKey: ["assistant", "status"], queryFn: api.assistantStatus, staleTime: 30_000 });
+  const status = useQuery({
+    queryKey: ["assistant", "status"],
+    queryFn: api.assistantStatus,
+    staleTime: 30_000,
+  });
   const busy = useAssistant((s) => s.busy);
   const qc = useQueryClient();
   // Usage moves with every reply.
@@ -160,6 +188,24 @@ function Conversation() {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
+  // Undo sits after the last message of the reply that made the changes.
+  const undo = useAssistant((s) => s.undo);
+  const undoAt = useMemo(() => {
+    const at = new Map<number, string>();
+    for (const k of Object.keys(undo)) {
+      const start = Number(k);
+      let end = messages.length - 1;
+      for (let j = start + 1; j < messages.length; j++) {
+        if (messages[j].role === "user" && userText(messages[j])) {
+          end = j - 1;
+          break;
+        }
+      }
+      at.set(end, k);
+    }
+    return at;
+  }, [undo, messages]);
+
   // Results by tool use id, to show how each tool call went.
   const results = useMemo(() => {
     const m = new Map<string, Extract<Block, { type: "tool_result" }>>();
@@ -186,7 +232,10 @@ function Conversation() {
       ) : (
         <div className="flex flex-col gap-3">
           {messages.map((m, i) => (
-            <MessageView key={i} m={m} results={results} />
+            <Fragment key={i}>
+              <MessageView m={m} results={results} />
+              {undoAt.has(i) && !(busy && i >= messages.length - 2) && <UndoBar k={undoAt.get(i)!} entry={undo[undoAt.get(i)!]} />}
+            </Fragment>
           ))}
           {live && <LiveReply blocks={live.blocks} />}
           {error && <p className="rounded-[8px] border border-redstone/30 bg-redstone/10 px-3 py-2 text-[13px] text-ink-2">{error}</p>}
@@ -198,7 +247,10 @@ function Conversation() {
 
 const ideas: { text: string; icon: typeof Sparkles }[] = [
   { text: "Why does my game crash?", icon: TriangleAlert },
-  { text: "Build me a cozy 1.21.1 pack with Create and shaders", icon: Package },
+  {
+    text: "Build me a cozy 1.21.1 pack with Create and shaders",
+    icon: Package,
+  },
   { text: "Make this instance run faster", icon: Gauge },
   { text: "What does each mod in this pack do?", icon: BookOpen },
 ];
@@ -217,7 +269,10 @@ function Welcome() {
       <ul className="mt-6 overflow-hidden rounded-[12px] border border-line-soft bg-slate-850/50">
         {ideas.map(({ text, icon: Icon }) => (
           <li key={text} className="border-b border-line-soft last:border-b-0">
-            <button className="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left text-[13px] text-ink-2 transition-colors hover:bg-slate-800/70 hover:text-ink" onClick={() => void send(text)}>
+            <button
+              className="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left text-[13px] text-ink-2 transition-colors hover:bg-slate-800/70 hover:text-ink"
+              onClick={() => void send(text)}
+            >
               <Icon size={15} className="shrink-0 text-ink-3 transition-colors group-hover:text-gold" />
               <span className="min-w-0 flex-1">{text}</span>
               <ArrowUp size={14} className="shrink-0 rotate-45 text-gold opacity-0 transition-opacity group-hover:opacity-100" />
@@ -242,23 +297,25 @@ function MessageView({ m, results }: { m: Msg; results: Map<string, Extract<Bloc
   return (
     <div className="flex flex-col gap-2">
       {m.content.map((b, i) =>
-        b.type === "text" ? <Markdown key={i} text={b.text} /> : b.type === "tool_use" ? <ToolRow key={i} id={b.id} name={b.name} result={results.get(b.id)} /> : null,
+        b.type === "text" ? (
+          <Markdown key={i} text={b.text} />
+        ) : b.type === "tool_use" ? (
+          <ToolRow key={i} id={b.id} name={b.name} input={b.input} result={results.get(b.id)} />
+        ) : null,
       )}
     </div>
   );
 }
 
 function LiveReply({ blocks }: { blocks: Record<number, { text?: string; tool?: string }> }) {
-  const keys = Object.keys(blocks).map(Number).sort((a, b) => a - b);
+  const keys = Object.keys(blocks)
+    .map(Number)
+    .sort((a, b) => a - b);
   if (keys.length === 0) return <Working />;
   return (
     <div className="flex flex-col gap-2">
       {keys.map((k) =>
-        blocks[k].tool ? (
-          <ToolRow key={k} id={`live-${k}`} name={blocks[k].tool!} pending />
-        ) : (
-          <Markdown key={k} text={blocks[k].text ?? ""} />
-        ),
+        blocks[k].tool ? <ToolRow key={k} id={`live-${k}`} name={blocks[k].tool!} pending /> : <Markdown key={k} text={blocks[k].text ?? ""} />,
       )}
     </div>
   );
@@ -291,15 +348,38 @@ const verbs: Record<string, string> = {
   test_launch: "Getting a test start ready",
 };
 
-function ToolRow({ id, name, result, pending }: { id: string; name: string; result?: Extract<Block, { type: "tool_result" }>; pending?: boolean }) {
+function ToolRow({
+  id,
+  name,
+  input,
+  result,
+  pending,
+}: {
+  id: string;
+  name: string;
+  input?: Record<string, any>;
+  result?: Extract<Block, { type: "tool_result" }>;
+  pending?: boolean;
+}) {
   const label = useAssistant((s) => s.labels[id]);
   const running = useAssistant((s) => s.running === id);
   const approval = useAssistant((s) => (s.approval?.toolUseId === id ? s.approval : null));
   const [open, setOpen] = useState(false);
+  if (approval?.proposal) return <PlanCard p={approval.proposal} />;
   if (approval) return <ApprovalCard a={approval} />;
+  if (name === "show_projects" && input && result && !result.is_error) return <ProjectCards input={input} />;
   const declined = result?.is_error && /declined|Stopped by the player/.test(result.content);
   const failed = result?.is_error && !declined;
-  const icon = pending || running || !result ? <span className="spinner" /> : declined ? <Ban size={13} className="text-ink-3" /> : failed ? <X size={13} className="text-redstone" /> : <Check size={13} className="text-grass" />;
+  const icon =
+    pending || running || !result ? (
+      <span className="spinner" />
+    ) : declined ? (
+      <Ban size={13} className="text-ink-3" />
+    ) : failed ? (
+      <X size={13} className="text-redstone" />
+    ) : (
+      <Check size={13} className="text-grass" />
+    );
   return (
     <div className="text-[12.5px]">
       <button
@@ -334,7 +414,7 @@ const COPY_ICONS =
   '<svg class="i-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>' +
   '<svg class="i-done" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => DOMPurify.sanitize(marked.parse(text, { async: false, breaks: true }) as string), [text]);
   useEffect(() => {
@@ -429,7 +509,16 @@ function SignInNotice() {
 
 function Unavailable({ status }: { status: AssistantStatus }) {
   if (status.needs === "email")
-    return <Notice text={status.reason ?? "Confirm your email first."} action={<button className="btn self-start" onClick={() => openExternal("https://alloymc.dev/settings")}>Open alloymc.dev</button>} />;
+    return (
+      <Notice
+        text={status.reason ?? "Confirm your email first."}
+        action={
+          <button className="btn self-start" onClick={() => openExternal("https://alloymc.dev/settings")}>
+            Open alloymc.dev
+          </button>
+        }
+      />
+    );
   const resets = status.dayResets ? new Date(status.dayResets) : null;
   const text = status.reason ?? "The assistant isn't available right now.";
   const back = resets && status.dayUsed >= 100 ? ` It's back at ${resets.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : "";
@@ -444,7 +533,10 @@ function Usage({ status }: { status: AssistantStatus }) {
   const r = 6;
   const c = 2 * Math.PI * r;
   return (
-    <span className="flex items-center gap-1.5 text-[11.5px] text-ink-3" title={`Used ${status.dayUsed}% of today's share and ${status.monthUsed}% of this month's`}>
+    <span
+      className="flex items-center gap-1.5 text-[11.5px] text-ink-3"
+      title={`Used ${status.dayUsed}% of today's share and ${status.monthUsed}% of this month's`}
+    >
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
         <circle cx="8" cy="8" r={r} fill="none" stroke="var(--color-slate-700)" strokeWidth="2.2" />
         <circle
@@ -468,7 +560,7 @@ function Composer({ status }: { status: AssistantStatus }) {
   const [text, setText] = useState("");
   const busy = useAssistant((s) => s.busy);
   const mode = useAssistant((s) => s.mode);
-  const pending = useAssistant((s) => !!s.approval);
+  const pending = useAssistant((s) => (s.approval ? (s.approval.proposal ? "plan" : "change") : null));
   const ref = useRef<HTMLTextAreaElement>(null);
   const open = useAssistant((s) => s.open);
   useEffect(() => {
@@ -500,7 +592,7 @@ function Composer({ status }: { status: AssistantStatus }) {
             submit();
           }
         }}
-        placeholder={pending ? "Allow or decline the change first" : busy ? "Claude is working…" : "Ask about mods, crashes, packs…"}
+        placeholder={pending === "plan" ? "Approve the plan or ask for changes first" : pending ? "Allow or decline the change first" : busy ? "Claude is working…" : "Ask about mods, crashes, packs…"}
         disabled={busy}
         maxLength={8000}
         className="block max-h-40 min-h-[44px] w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[13.5px] leading-[1.5] text-ink outline-none placeholder:text-ink-3"
@@ -544,13 +636,7 @@ function ApprovalCard({ a }: { a: Approval }) {
       return n;
     });
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="ai-ask"
-      role="alertdialog"
-      aria-label="Allow this change?"
-    >
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="ai-ask" role="alertdialog" aria-label="Allow this change?">
       <div className="flex items-start gap-2.5 px-3.5 pt-3">
         <Wrench size={14} className="mt-[3px] shrink-0 text-gold" />
         <div className="min-w-0 flex-1">
@@ -621,14 +707,20 @@ function Checklist({ items, picked, toggle }: { items: BatchItem[]; picked: Set<
 
 function Diff({ lines }: { lines: DiffLine[] }) {
   return (
-    <pre className="mt-2.5 max-h-56 overflow-auto rounded-[8px] border border-line-soft bg-slate-950/90 py-1.5 font-mono text-[11px] leading-[1.6]" data-selectable>
+    <pre
+      className="mt-2.5 max-h-56 overflow-auto rounded-[8px] border border-line-soft bg-slate-950/90 py-1.5 font-mono text-[11px] leading-[1.6]"
+      data-selectable
+    >
       {lines.map((l, i) =>
         l.kind === "gap" ? (
           <div key={i} className="px-2.5 text-ink-3/70">
             ⋯ {l.count} unchanged line{l.count > 1 ? "s" : ""}
           </div>
         ) : (
-          <div key={i} className={`whitespace-pre-wrap px-2.5 ${l.kind === "add" ? "bg-grass/10 text-grass" : l.kind === "del" ? "bg-redstone/10 text-redstone" : "text-ink-3"}`}>
+          <div
+            key={i}
+            className={`whitespace-pre-wrap px-2.5 ${l.kind === "add" ? "bg-grass/10 text-grass" : l.kind === "del" ? "bg-redstone/10 text-redstone" : "text-ink-3"}`}
+          >
             {l.kind === "add" ? "+ " : l.kind === "del" ? "- " : "  "}
             {l.text || " "}
           </div>
@@ -640,50 +732,92 @@ function Diff({ lines }: { lines: DiffLine[] }) {
 
 // ---------- history ----------
 
+/** What Claude keeps about the player between conversations, with a way to delete each. */
+function Memory() {
+  const { data, refetch } = useQuery({
+    queryKey: ["assistant", "memory"],
+    queryFn: api.assistantMemory,
+  });
+  const notes = data ?? [];
+  if (notes.length === 0) return null;
+  return (
+    <section className="mx-2 mb-2 rounded-[12px] border border-line-soft bg-slate-850/50 p-3">
+      <h4 className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
+        <Brain size={13} className="text-gold" /> Claude remembers
+      </h4>
+      <ul className="mt-2 flex flex-col gap-1">
+        {notes.map((n, i) => (
+          <li key={`${i}-${n}`} className="group flex items-start gap-2 rounded-[6px] py-0.5 text-[12.5px] leading-snug text-ink-2">
+            <span className="min-w-0 flex-1">{n}</span>
+            <button
+              className="shrink-0 rounded-[4px] p-0.5 text-ink-3 opacity-0 transition-opacity hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label={`Forget “${n}”`}
+              onClick={async () => {
+                await api.assistantMemorySet(notes.filter((_, k) => k !== i)).catch(toastError);
+                void refetch();
+              }}
+            >
+              <X size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function HistoryList({ onPick }: { onPick: () => void }) {
-  const { data, refetch } = useQuery({ queryKey: ["assistant", "chats"], queryFn: api.assistantChats });
+  const { data, refetch } = useQuery({
+    queryKey: ["assistant", "chats"],
+    queryFn: api.assistantChats,
+  });
   const current = useAssistant((s) => s.chatId);
   const chats = data ?? [];
   if (chats.length === 0)
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-        <Ori pose="sleeping" size={90} />
-        <p className="mt-3 text-[13px] text-ink-3">No conversations yet. They're kept on this computer.</p>
+      <div className="flex min-h-0 flex-1 flex-col pt-2">
+        <Memory />
+        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <Ori pose="sleeping" size={90} />
+          <p className="mt-3 text-[13px] text-ink-3">No conversations yet. They're kept on this computer.</p>
+        </div>
       </div>
     );
   return (
-    <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-      {chats.map((c) => (
-        <li key={c.id} className="group relative">
-          <button
-            className={`w-full rounded-[10px] py-2.5 pl-3.5 pr-11 text-left transition-colors hover:bg-slate-800/80 ${c.id === current ? "bg-slate-800/60" : ""}`}
-            onClick={async () => {
-              try {
-                await useAssistant.getState().load(c.id);
-                onPick();
-              } catch (e) {
-                toastError(e);
-              }
-            }}
-          >
-            <p className="truncate text-[13px] text-ink">{c.title}</p>
-            <p className="mt-0.5 text-[11.5px] text-ink-3">{ago(c.updated)}</p>
-          </button>
-          <button
-            className="ai-icon absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-            aria-label={`Delete “${c.title}”`}
-            title="Delete"
-            onClick={async () => {
-              await api.assistantChatDelete(c.id).catch(toastError);
-              if (c.id === current) useAssistant.getState().reset();
-              void refetch();
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="min-h-0 flex-1 overflow-y-auto pt-2">
+      <Memory />
+      <ul className="flex flex-col gap-0.5 px-2 pb-2">
+        {chats.map((c) => (
+          <li key={c.id} className="group relative">
+            <button
+              className={`w-full rounded-[10px] py-2.5 pl-3.5 pr-11 text-left transition-colors hover:bg-slate-800/80 ${c.id === current ? "bg-slate-800/60" : ""}`}
+              onClick={async () => {
+                try {
+                  await useAssistant.getState().load(c.id);
+                  onPick();
+                } catch (e) {
+                  toastError(e);
+                }
+              }}
+            >
+              <p className="truncate text-[13px] text-ink">{c.title}</p>
+              <p className="mt-0.5 text-[11.5px] text-ink-3">{ago(c.updated)}</p>
+            </button>
+            <button
+              className="ai-icon absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label={`Delete “${c.title}”`}
+              title="Delete"
+              onClick={async () => {
+                await api.assistantChatDelete(c.id).catch(toastError);
+                if (c.id === current) useAssistant.getState().reset();
+                void refetch();
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
-

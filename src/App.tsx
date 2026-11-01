@@ -10,6 +10,7 @@ import { CrashDoctorDialog } from "./components/CrashDoctor";
 import { GlobalMenu } from "./components/ContextMenu";
 import { CurseForgePrompt } from "./components/CurseForgePrompt";
 import { AssistantPanel } from "./components/Assistant";
+import { ServerPackDialog } from "./components/ServerPack";
 import { Toasts } from "./components/ui";
 import { useUpdates } from "./components/Updates";
 import { api, isTauri } from "./lib/api";
@@ -171,6 +172,7 @@ export default function App() {
       </div>
       <AssistantPanel />
       <CreateInstanceDialog />
+      <ServerPackDialog />
       <PreflightDialog />
       <CrashDoctorDialog />
       <GlobalMenu />

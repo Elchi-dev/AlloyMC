@@ -122,6 +122,75 @@ pub async fn curseforge_files(state: State<'_, AppState>, mod_id: u64, instance_
     }
 }
 
+/// A project as the assistant's cards show it, from either site.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCard {
+    pub platform: &'static str,
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub author: Option<String>,
+    pub icon_url: Option<String>,
+    pub image: Option<String>,
+    pub downloads: u64,
+    pub url: String,
+    pub kind: String,
+}
+
+/// Cards for projects by id (or Modrinth slug), in the order asked; unknown ones are left out.
+#[tauri::command]
+pub async fn project_cards(state: State<'_, AppState>, platform: Platform, ids: Vec<String>) -> Result<Vec<ProjectCard>> {
+    let launcher = &state.launcher;
+    let mut cards = match platform {
+        Platform::Modrinth => modrinth::projects(launcher, &ids)
+            .await?
+            .into_iter()
+            .map(|p| ProjectCard {
+                platform: "modrinth",
+                url: format!("https://modrinth.com/{}/{}", p.project_type, p.slug),
+                image: p.gallery.iter().find(|g| g.featured).or(p.gallery.first()).map(|g| g.url.clone()),
+                kind: p.project_type.clone(),
+                id: p.id,
+                title: p.title,
+                description: p.description,
+                author: None,
+                icon_url: p.icon_url,
+                downloads: p.downloads,
+            })
+            .collect::<Vec<_>>(),
+        Platform::CurseForge => {
+            let nums: Vec<u64> = ids.iter().filter_map(|i| i.parse().ok()).collect();
+            curseforge::mods(launcher, &nums)
+                .await?
+                .into_iter()
+                .map(|m| ProjectCard {
+                    platform: "curseforge",
+                    url: m.links.as_ref().and_then(|l| l.website_url.clone()).unwrap_or_else(|| format!("https://www.curseforge.com/minecraft/mc-mods/{}", m.slug)),
+                    image: m.screenshots.first().map(|s| s.url.clone()),
+                    kind: match m.class_id {
+                        Some(4471) => "modpack",
+                        Some(12) => "resourcepack",
+                        Some(6552) => "shader",
+                        _ => "mod",
+                    }
+                    .into(),
+                    id: m.id.to_string(),
+                    title: m.name,
+                    description: m.summary,
+                    author: m.authors.first().map(|a| a.name.clone()),
+                    icon_url: m.logo.map(|l| l.thumbnail_url.unwrap_or(l.url)),
+                    downloads: m.download_count as u64,
+                })
+                .collect()
+        }
+    };
+    // Keep the order the assistant chose (slugs match by position only when ids differ).
+    let rank = |c: &ProjectCard| ids.iter().position(|i| *i == c.id).unwrap_or(usize::MAX);
+    cards.sort_by_key(rank);
+    Ok(cards)
+}
+
 // ---------- installs ----------
 
 /// Tells the window right after a pack's import that some files must come from CurseForge's

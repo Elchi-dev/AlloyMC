@@ -6,7 +6,8 @@
 // first change to an instance in a conversation makes an automatic save point.
 
 import { create } from "zustand";
-import { api, newJobId } from "./api";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
+import { api, isTauri, newJobId } from "./api";
 import { listen } from "./bus";
 import { loaderName } from "./format";
 import { useStore } from "./store";
@@ -17,7 +18,12 @@ import type { ContentItem, CrashFix, Diagnosis, Instance, Loader, Problem } from
 export type Block =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, any> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+      is_error?: boolean;
+    }
   | { type: "thinking"; thinking: string; signature?: string };
 
 export interface Msg {
@@ -49,6 +55,8 @@ export interface Chat extends ChatSummary {
   messages: Msg[];
   labels: Record<string, string>;
   mode?: Mode | null;
+  undo?: Record<string, UndoEntry>;
+  plan?: ApprovedPlan | null;
 }
 
 export type Delta = { type: "text"; index: number; text: string } | { type: "tool"; index: number; id: string; name: string };
@@ -66,6 +74,37 @@ export interface Approval {
   always: boolean;
   /** A batch: what the player can tick or untick. */
   items?: BatchItem[];
+  /** A whole pack plan to review. */
+  proposal?: PackProposal;
+}
+
+export interface PlanItem {
+  key: string;
+  platform: "modrinth" | "curseforge";
+  projectId: string;
+  title: string;
+  why?: string;
+}
+
+export interface PackProposal {
+  name: string;
+  gameVersion: string;
+  loader: string;
+  summary: string;
+  groups: { name: string; items: PlanItem[] }[];
+}
+
+/** A plan the player approved: installs from it don't ask again. */
+export interface ApprovedPlan {
+  name: string;
+  keys: string[];
+}
+
+/** What to restore to undo one reply's changes. */
+export interface UndoEntry {
+  label: string;
+  points: { instanceId: string; pointId: string }[];
+  undone?: boolean;
 }
 
 export interface BatchItem {
@@ -76,7 +115,11 @@ export interface BatchItem {
   unavailable?: string;
 }
 
-type Answer = { kind: "allow" | "decline" | "rest"; selected?: string[] };
+type Answer = {
+  kind: "allow" | "decline" | "rest" | "changes";
+  selected?: string[];
+  note?: string;
+};
 
 interface State {
   open: boolean;
@@ -98,6 +141,12 @@ interface State {
   approval: Approval | null;
   allowRest: boolean;
   error: string | null;
+  /** Save points per reply (keyed by the index of the message that asked), for undo. */
+  undo: Record<string, UndoEntry>;
+  plan: ApprovedPlan | null;
+  undoTurn: (key: string) => Promise<void>;
+  /** Plans: approve with what's kept, or ask for changes. */
+  answerPlan: (a: { approve: boolean; selected: string[]; note: string }) => void;
 
   send: (text: string) => Promise<void>;
   stop: () => void;
@@ -114,8 +163,10 @@ const RESULT_LIMIT = 30_000;
 let requestId: string | null = null;
 let stopped = false;
 let resolveApproval: ((v: Answer) => void) | null = null;
-/** Instances already given a save point in this conversation. */
-let checkpointed = new Set<string>();
+/** The reply in progress: which message asked, and the save points made for it so far. */
+let turn: { key: string; label: string; points: Map<string, string> } | null = null;
+/** Something to tell Claude with the next message (an undo since). */
+let pendingNote: string | null = null;
 
 const fresh = () => ({
   chatId: crypto.randomUUID(),
@@ -127,6 +178,8 @@ const fresh = () => ({
   approval: null,
   allowRest: false,
   error: null,
+  undo: {} as Record<string, UndoEntry>,
+  plan: null as ApprovedPlan | null,
 });
 
 export const useAssistant = create<State>((set, get) => ({
@@ -141,15 +194,25 @@ export const useAssistant = create<State>((set, get) => ({
 
   reset: () => {
     if (get().busy) get().stop();
-    checkpointed = new Set();
+    pendingNote = null;
     set(fresh());
   },
 
   load: async (id) => {
     if (get().busy) return;
     const c = await api.assistantChat(id);
-    checkpointed = new Set();
-    set({ ...fresh(), chatId: c.id, title: c.title, messages: c.messages, labels: c.labels ?? {}, instanceId: c.instanceId ?? null, mode: c.mode ?? get().mode });
+    pendingNote = null;
+    set({
+      ...fresh(),
+      chatId: c.id,
+      title: c.title,
+      messages: c.messages,
+      labels: c.labels ?? {},
+      instanceId: c.instanceId ?? null,
+      mode: c.mode ?? get().mode,
+      undo: (c.undo ?? {}) as Record<string, UndoEntry>,
+      plan: (c.plan ?? null) as ApprovedPlan | null,
+    });
   },
 
   ask: (text, instanceId) => {
@@ -170,29 +233,64 @@ export const useAssistant = create<State>((set, get) => ({
   },
 
   answer: (allow, rest, selected) => {
-    resolveApproval?.({ kind: allow ? (rest ? "rest" : "allow") : "decline", selected });
+    resolveApproval?.({
+      kind: allow ? (rest ? "rest" : "allow") : "decline",
+      selected,
+    });
+  },
+
+  answerPlan: ({ approve, selected, note }) => {
+    resolveApproval?.({ kind: approve ? "allow" : "changes", selected, note });
+  },
+
+  undoTurn: async (key) => {
+    const entry = get().undo[key];
+    if (!entry || entry.undone) return;
+    for (const p of entry.points) await api.savepointRestore(p.instanceId, p.pointId);
+    set((s) => ({ undo: { ...s.undo, [key]: { ...entry, undone: true } } }));
+    pendingNote = `The player undid all changes from their request "${entry.label}": those instances are back as they were before it.`;
+    useStore.getState().toast({ kind: "success", text: "Changes undone" });
+    void save(get());
   },
 
   send: async (text) => {
     const trimmed = text.trim();
     if (!trimmed || get().busy) return;
     stopped = false;
-    const ctx = await contextNote(get().instanceId);
+    const ctx = await contextNote(get().instanceId, get().messages.length === 0);
     const blocks: Block[] = [...(ctx ? [{ type: "text" as const, text: ctx }] : []), { type: "text", text: trimmed }];
-    set((s) => ({ busy: true, error: null, title: s.title || trimmed.slice(0, 70), messages: pushUser(s.messages, blocks) }));
+    turn = {
+      key: String(get().messages.length),
+      label: trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed,
+      points: new Map(),
+    };
+    set((s) => ({
+      busy: true,
+      error: null,
+      title: s.title || trimmed.slice(0, 70),
+      messages: pushUser(s.messages, blocks),
+    }));
     try {
       for (let round = 0; round < MAX_ROUNDS && !stopped; round++) {
         requestId = newJobId();
         set({ live: { blocks: {} } });
         const reply = await api.assistantSend(requestId, get().mode, get().messages, toolNames());
         requestId = null;
-        set((s) => ({ live: null, messages: [...s.messages, { role: "assistant", content: reply.content }] }));
+        set((s) => ({
+          live: null,
+          messages: [...s.messages, { role: "assistant", content: reply.content }],
+        }));
         const uses = reply.content.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
         if (reply.stopReason !== "tool_use" || uses.length === 0) break;
         const results: Block[] = [];
         for (const u of uses) {
           if (stopped) {
-            results.push({ type: "tool_result", tool_use_id: u.id, content: "Stopped by the player.", is_error: true });
+            results.push({
+              type: "tool_result",
+              tool_use_id: u.id,
+              content: "Stopped by the player.",
+              is_error: true,
+            });
             continue;
           }
           set({ running: u.id });
@@ -230,26 +328,41 @@ async function save(s: State) {
       messages: s.messages,
       labels: s.labels,
       mode: s.mode,
+      undo: s.undo,
+      plan: s.plan,
     });
   } catch {
     /* saving is a convenience */
   }
 }
 
-async function contextNote(instanceId: string | null): Promise<string | null> {
+async function contextNote(instanceId: string | null, first: boolean): Promise<string | null> {
   const page = useStore.getState().page;
   const parts: string[] = [];
+  if (pendingNote) {
+    parts.push(pendingNote);
+    pendingNote = null;
+  }
+  if (first) {
+    const notes = await api.assistantMemory().catch(() => [] as string[]);
+    if (notes.length) parts.push(`Notes you saved about the player (forget takes the number): ${notes.map((n, i) => `${i}. ${n}`).join(" ")}`);
+  }
   if (instanceId) {
     const inst = await api.instance(instanceId).catch(() => null);
-    if (inst) parts.push(`The player has the instance "${inst.name}" open (instance_id ${inst.id}, Minecraft ${inst.gameVersion}, ${loaderName[inst.loader]}).`);
+    if (inst)
+      parts.push(`The player has the instance "${inst.name}" open (instance_id ${inst.id}, Minecraft ${inst.gameVersion}, ${loaderName[inst.loader]}).`);
   } else if (page.name !== "instance") {
     parts.push(`The player is on Alloy's ${page.name} page.`);
   }
   return parts.length ? `${CONTEXT_TAG}${parts.join(" ")}</alloy-context>` : null;
 }
 
+/** Side conversations (the crash doctor's explanation) stream here by request id. */
+const sideStreams = new Map<string, (d: Delta) => void>();
+
 // Stream deltas into `live`.
 listen("assistant-delta", (e: { requestId: string; delta: Delta }) => {
+  sideStreams.get(e.requestId)?.(e.delta);
   if (e.requestId !== requestId) return;
   const d = e.delta;
   useAssistant.setState((s) => {
@@ -270,8 +383,11 @@ interface Plan {
   detail?: string;
   diff?: DiffLine[];
   /** `selected`: the batch items the player kept; `progress` relabels the row while it runs. */
-  run: (selected?: string[], progress?: (text: string) => void) => Promise<string>;
+  run: (selected?: string[], progress?: (text: string) => void, note?: string) => Promise<string>;
   items?: BatchItem[];
+  proposal?: PackProposal;
+  /** Already approved (part of an approved plan): runs without asking. */
+  preApproved?: boolean;
   /** The instance the change touches, for the save point. */
   instanceId?: string;
   noCheckpoint?: boolean;
@@ -283,7 +399,12 @@ class Nothing {
 }
 
 async function runTool(u: ToolUse, set: Setter, get: () => State): Promise<Block> {
-  const result = (content: string, is_error = false): Block => ({ type: "tool_result", tool_use_id: u.id, content: cut(content), ...(is_error ? { is_error } : {}) });
+  const result = (content: string, is_error = false): Block => ({
+    type: "tool_result",
+    tool_use_id: u.id,
+    content: cut(content),
+    ...(is_error ? { is_error } : {}),
+  });
   const label = (text: string) => set((s) => ({ labels: { ...s.labels, [u.id]: text } }));
   try {
     const read = readers[u.name];
@@ -304,25 +425,63 @@ async function runTool(u: ToolUse, set: Setter, get: () => State): Promise<Block
       throw e;
     }
     label(plan.title);
-    const always = u.name === "remove_content";
+    const always = u.name === "remove_content" || !!plan.proposal;
     let selected = plan.items?.filter((i) => !i.unavailable).map((i) => i.key);
-    if (!get().allowRest || always) {
-      set({ approval: { toolUseId: u.id, name: u.name, title: plan.title, detail: plan.detail, diff: plan.diff, always, items: plan.items } });
+    let note: string | undefined;
+    if ((!get().allowRest && !plan.preApproved) || always) {
+      set({
+        approval: {
+          toolUseId: u.id,
+          name: u.name,
+          title: plan.title,
+          detail: plan.detail,
+          diff: plan.diff,
+          always,
+          items: plan.items,
+          proposal: plan.proposal,
+        },
+      });
       const answer = await new Promise<Answer>((r) => (resolveApproval = r));
       resolveApproval = null;
       set({ approval: null });
+      if (answer.kind === "changes") {
+        set((s) => ({
+          labels: { ...s.labels, [u.id]: `Asked for changes: ${plan.title}` },
+        }));
+        return result(
+          `The player wants changes before approving. Their note: ${answer.note?.trim() || "(none)"}${answer.selected ? `\nThey had ${answer.selected.length} items ticked.` : ""}`,
+        );
+      }
       if (answer.kind === "decline" || (plan.items && answer.selected?.length === 0)) {
-        set((s) => ({ labels: { ...s.labels, [u.id]: `Declined: ${plan.title}` } }));
+        set((s) => ({
+          labels: { ...s.labels, [u.id]: `Declined: ${plan.title}` },
+        }));
         return result(stopped ? "Stopped by the player." : "The player declined this.", true);
       }
       if (answer.kind === "rest") set({ allowRest: true });
       if (answer.selected) selected = answer.selected;
+      note = answer.note;
     }
-    if (plan.instanceId && !plan.noCheckpoint && !checkpointed.has(plan.instanceId)) {
-      checkpointed.add(plan.instanceId);
-      await api.assistantCheckpoint(plan.instanceId).catch(() => {});
+    if (plan.instanceId && !plan.noCheckpoint && turn && !turn.points.has(plan.instanceId)) {
+      const id = await api.assistantCheckpoint(plan.instanceId, `Before: ${turn.label}`).catch(() => null);
+      if (id) {
+        turn.points.set(plan.instanceId, id);
+        const t = turn;
+        set((s) => ({
+          undo: {
+            ...s.undo,
+            [t.key]: {
+              label: t.label,
+              points: [...t.points].map(([instanceId, pointId]) => ({
+                instanceId,
+                pointId,
+              })),
+            },
+          },
+        }));
+      }
     }
-    return result(await plan.run(selected, label));
+    return result(await plan.run(selected, label, note));
   } catch (e) {
     return result(String(e), true);
   }
@@ -333,6 +492,7 @@ function cut(s: string, max = RESULT_LIMIT) {
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
+const planKey = (platform: unknown, id: unknown) => `${platform === "curseforge" ? "curseforge" : "modrinth"}:${String(id ?? "")}`;
 
 async function instanceNamed(id: string): Promise<Instance> {
   try {
@@ -373,7 +533,10 @@ function crashFixLine(f: CrashFix) {
 }
 
 export function diagnosisText(d: Diagnosis) {
-  const lines = [`${d.title}. ${d.detail}`, `Kind: ${d.kind}. ${d.afterStart ? "It crashed while playing." : "It crashed while starting."}${d.exitCode != null ? ` Exit code ${d.exitCode}.` : ""}`];
+  const lines = [
+    `${d.title}. ${d.detail}`,
+    `Kind: ${d.kind}. ${d.afterStart ? "It crashed while playing." : "It crashed while starting."}${d.exitCode != null ? ` Exit code ${d.exitCode}.` : ""}`,
+  ];
   if (d.suspects.length) {
     lines.push("Suspects:");
     for (const s of d.suspects) lines.push(`- ${s.name} (${s.confidence}): ${s.reason} · ${s.path}`);
@@ -407,7 +570,10 @@ const readers: Record<string, { label: (i: any) => Promise<string>; run: (i: any
         `${inst.name} · id ${inst.id} · Minecraft ${inst.gameVersion} · ${loaderName[inst.loader]}${inst.loaderVersion ? ` ${inst.loaderVersion}` : ""}`,
         `Memory: ${inst.memoryMb ? gb(inst.memoryMb) : `${gb(settings.defaultMemoryMb)} (Alloy's default)`}${inst.javaPath ? ` · Java: ${inst.javaPath}` : ""} · install: ${inst.installState}`,
       ];
-      if (inst.linkedPack?.name) lines.push(`From the modpack ${inst.linkedPack.name}${inst.linkedPack.versionName ? ` ${inst.linkedPack.versionName}` : ""} (${inst.linkedPack.source})`);
+      if (inst.linkedPack?.name)
+        lines.push(
+          `From the modpack ${inst.linkedPack.name}${inst.linkedPack.versionName ? ` ${inst.linkedPack.versionName}` : ""} (${inst.linkedPack.source})`,
+        );
       const count = (k: string) => ov.items.filter((x) => x.kind === k).length;
       lines.push(`Content: ${count("mod")} mods, ${count("resourcepack")} resource packs, ${count("shader")} shaders, ${count("datapack")} data packs`);
       lines.push(...ov.items.map(itemLine));
@@ -419,7 +585,10 @@ const readers: Record<string, { label: (i: any) => Promise<string>; run: (i: any
         lines.push("Fixes Alloy offers (apply_fix with the index):");
         fixes.forEach((f, n) => lines.push(`- ${n}: ${f.label} (${f.message})`));
       }
-      if (ov.blocked.length) lines.push(`Waiting for a manual CurseForge download (the player gets these in Alloy's CurseForge window): ${ov.blocked.map((b) => b.title).join(", ")}`);
+      if (ov.blocked.length)
+        lines.push(
+          `Waiting for a manual CurseForge download (the player gets these in Alloy's CurseForge window): ${ov.blocked.map((b) => b.title).join(", ")}`,
+        );
       if (ov.listedMissing) lines.push("Some files the modpack lists haven't been downloaded yet.");
       return lines.join("\n");
     },
@@ -454,6 +623,30 @@ const readers: Record<string, { label: (i: any) => Promise<string>; run: (i: any
     run: async (i) => {
       const d = await api.crashLast(str(i.instance_id));
       return d ? diagnosisText(d) : "No crash recorded since the instance last started fine.";
+    },
+  },
+  show_projects: {
+    label: async (i) => `Showed you ${Array.isArray(i.items) ? i.items.length : 0} project${i.items?.length === 1 ? "" : "s"}`,
+    run: async (i) => `Shown to the player as cards with an Add button: ${(Array.isArray(i.items) ? i.items : []).map((x: any) => x.title).join(", ")}.`,
+  },
+  remember: {
+    label: async (i) => `Remembered: ${str(i.note)}`,
+    run: async (i) => {
+      const notes = await api.assistantMemory();
+      const note = str(i.note).trim().slice(0, 200);
+      if (!note) throw "Nothing to remember.";
+      await api.assistantMemorySet([...notes, note]);
+      return `Saved as note ${notes.length}.`;
+    },
+  },
+  forget: {
+    label: async () => "Forgot a note",
+    run: async (i) => {
+      const notes = await api.assistantMemory();
+      const n = Number(i.index);
+      if (!(n >= 0 && n < notes.length)) throw `There's no note ${i.index}; there are ${notes.length}.`;
+      await api.assistantMemorySet(notes.filter((_, k) => k !== n));
+      return `Forgot: ${notes[n]}`;
     },
   },
   read_file: {
@@ -499,7 +692,12 @@ async function modrinthProject(i: any) {
   return lines.join("\n");
 }
 
-const cfLoaders: Record<string, string> = { forge: "Forge", fabric: "Fabric", quilt: "Quilt", neoforge: "NeoForge" };
+const cfLoaders: Record<string, string> = {
+  forge: "Forge",
+  fabric: "Fabric",
+  quilt: "Quilt",
+  neoforge: "NeoForge",
+};
 
 async function curseforgeProject(i: any) {
   const id = Number(i.project_id);
@@ -518,7 +716,9 @@ async function curseforgeProject(i: any) {
   if (fs.length === 0) lines.push("None.");
   for (const f of fs.slice(0, 6)) {
     const req = f.dependencies.filter((d) => d.relationType === 3).map((d) => d.modId);
-    lines.push(`- ${f.displayName} · version_id ${f.id} · ${type[f.releaseType - 1] ?? "release"} · ${f.gameVersions.join(", ")}${req.length ? ` · requires projects ${req.join(", ")}` : ""}`);
+    lines.push(
+      `- ${f.displayName} · version_id ${f.id} · ${type[f.releaseType - 1] ?? "release"} · ${f.gameVersions.join(", ")}${req.length ? ` · requires projects ${req.join(", ")}` : ""}`,
+    );
   }
   return lines.join("\n");
 }
@@ -527,7 +727,9 @@ function outcomeText(o: { installed: string[]; unresolved: string[]; blocked: { 
   const lines = [o.installed.length ? `Installed: ${o.installed.join(", ")}.` : "Nothing new was installed (it may already be there)."];
   if (o.unresolved.length) lines.push(`Couldn't find a fitting version of: ${o.unresolved.join(", ")}.`);
   if (o.blocked.length)
-    lines.push(`CurseForge only lets its website hand out: ${o.blocked.map((b) => b.title).join(", ")}. Alloy asks the player to fetch them in its CurseForge window.`);
+    lines.push(
+      `CurseForge only lets its website hand out: ${o.blocked.map((b) => b.title).join(", ")}. Alloy asks the player to fetch them in its CurseForge window.`,
+    );
   return lines.join(" ");
 }
 
@@ -549,12 +751,19 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
       const loader = str(i.loader) as Loader;
       const game = str(i.game_version);
       const versions = await api.gameVersions(true);
-      if (!versions.some((v) => v.id === game)) throw `Minecraft ${game} doesn't exist. Newest releases: ${versions.filter((v) => v.type === "release").slice(0, 8).map((v) => v.id).join(", ")}.`;
+      if (!versions.some((v) => v.id === game))
+        throw `Minecraft ${game} doesn't exist. Newest releases: ${versions
+          .filter((v) => v.type === "release")
+          .slice(0, 8)
+          .map((v) => v.id)
+          .join(", ")}.`;
       let lv: string | null = null;
       if (loader !== "vanilla") {
         const lvs = await api.loaderVersions(loader, game);
         if (lvs.length === 0) throw `${loaderName[loader]} has no build for Minecraft ${game}.`;
-        lv = i.loader_version ? (lvs.find((v) => v.id === i.loader_version)?.id ?? null) : (lvs.find((v) => v.recommended) ?? lvs.find((v) => v.stable) ?? lvs[0]).id;
+        lv = i.loader_version
+          ? (lvs.find((v) => v.id === i.loader_version)?.id ?? null)
+          : (lvs.find((v) => v.recommended) ?? lvs.find((v) => v.stable) ?? lvs[0]).id;
         if (!lv) throw `${loaderName[loader]} ${i.loader_version} doesn't exist for Minecraft ${game}.`;
       }
       const name = str(i.name).trim() || `${loaderName[loader]} ${game}`;
@@ -563,7 +772,13 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
         detail: `Minecraft ${game}, ${loaderName[loader]}${lv ? ` ${lv}` : ""}${loader === "fabric" || loader === "quilt" ? ", with Fabric API" : ""}`,
         noCheckpoint: true,
         run: async () => {
-          const inst = await api.createInstance({ name, gameVersion: game, loader, loaderVersion: lv, fabricApi: true });
+          const inst = await api.createInstance({
+            name,
+            gameVersion: game,
+            loader,
+            loaderVersion: lv,
+            fabricApi: true,
+          });
           return `Created "${inst.name}" with instance_id ${inst.id}. Alloy is downloading the game files in the background; content can be installed right away.`;
         },
       };
@@ -596,15 +811,105 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
       };
     },
   },
+  propose_pack: {
+    plan: async (i) => {
+      const groups: PackProposal["groups"] = (Array.isArray(i.groups) ? i.groups : []).map((g: any, gi: number) => ({
+        name: str(g.name) || `Group ${gi + 1}`,
+        items: (Array.isArray(g.items) ? g.items : []).map((x: any) => ({
+          key: planKey(x.platform, x.project_id),
+          platform: x.platform === "curseforge" ? "curseforge" : "modrinth",
+          projectId: str(x.project_id),
+          title: str(x.title) || str(x.project_id),
+          why: str(x.why) || undefined,
+        })),
+      }));
+      const proposal: PackProposal = {
+        name: str(i.name) || "New pack",
+        gameVersion: str(i.game_version),
+        loader: str(i.loader),
+        summary: str(i.summary),
+        groups,
+      };
+      const all = groups.flatMap((g) => g.items);
+      return {
+        title: `Plan for ${proposal.name}`,
+        proposal,
+        items: all.map((x) => ({ key: x.key, title: x.title, detail: x.why })),
+        run: async (selected, progress, note) => {
+          const keep = new Set(selected ?? all.map((x) => x.key));
+          const removed = all.filter((x) => !keep.has(x.key)).map((x) => x.title);
+          useAssistant.setState({
+            plan: { name: proposal.name, keys: [...keep] },
+          });
+          progress?.(`Approved the plan for ${proposal.name}: ${keep.size} mods`);
+          const lines = [
+            `The player approved the plan "${proposal.name}" with ${keep.size} of ${all.length} mods. Installs with install_contents from it won't ask again.`,
+          ];
+          if (removed.length) lines.push(`They removed: ${removed.join(", ")}. Don't add those.`);
+          if (note?.trim()) lines.push(`Their note: ${note.trim()}`);
+          return lines.join("\n");
+        },
+      };
+    },
+  },
+  find_culprit: {
+    plan: async (i) => {
+      const inst = await instanceNamed(str(i.instance_id));
+      if (useStore.getState().game[inst.id]) throw `${inst.name} is running. Ask the player to close it first.`;
+      return {
+        title: `Find the mod that crashes ${inst.name}`,
+        detail:
+          "Alloy starts the game several times with halves of the mods off until one is left, then puts everything back. This takes a few minutes, more for big packs.",
+        instanceId: inst.id,
+        noCheckpoint: true,
+        run: async () => {
+          const f = await api.bisectStart(inst.id);
+          if (f.names.length === 0) return `Found nothing: ${inst.name} started fine with every half, so the crash may depend on the world or on timing.`;
+          return `${f.alone ? "Found it" : "Narrowed it down"} after ${f.trials} starts: ${f.names.join(", ")} (${f.culprits.join(", ")}).${f.alone ? "" : " These crash only together."} All mods are back as they were.`;
+        },
+      };
+    },
+  },
+  make_server_pack: {
+    plan: async (i) => {
+      const inst = await instanceNamed(str(i.instance_id));
+      return {
+        title: `Make a server from ${inst.name}`,
+        detail: "You'll pick an empty folder. The server gets the same Minecraft and loader, the mods without client-only ones, the configs and start scripts.",
+        noCheckpoint: true,
+        run: async () => {
+          const dest = isTauri ? await openFolderDialog({ directory: true, title: "Choose an empty folder for the server" }) : "~/Servers/demo";
+          if (typeof dest !== "string") return "The player didn't pick a folder, so no server was made.";
+          const r = await api.makeServerPack(inst.id, dest, false);
+          return [
+            `Made a server in ${r.dir} with ${r.mods} mods. Start it with ${r.start}; it needs Java ${r.javaMajor}.`,
+            r.leftOut.length ? `Left out as client-only: ${r.leftOut.join(", ")}.` : "No mods were client-only.",
+            "eula.txt says eula=false: the player must accept Minecraft's EULA there before the first start.",
+          ].join(" ");
+        },
+      };
+    },
+  },
   install_contents: {
     plan: async (i) => {
       const inst = await instanceNamed(str(i.instance_id));
-      const wanted: { platform?: string; project_id?: string; version_id?: string; why?: string }[] = Array.isArray(i.items) ? i.items.slice(0, 40) : [];
+      const wanted: {
+        platform?: string;
+        project_id?: string;
+        version_id?: string;
+        why?: string;
+      }[] = Array.isArray(i.items) ? i.items.slice(0, 40) : [];
       if (wanted.length === 0) throw "No items to install.";
       const ov = await api.overview(inst.id).catch(() => null);
       const have = new Set((ov?.items ?? []).map((x) => x.meta?.projectId).filter(Boolean) as string[]);
       // Look every item up first (a few at a time) so the card shows real names and versions.
-      type Resolved = BatchItem & { install?: () => Promise<{ installed: string[]; unresolved: string[]; blocked: { title: string }[] }> };
+      type Resolved = BatchItem & {
+        install?: () => Promise<{
+          installed: string[];
+          unresolved: string[];
+          blocked: { title: string }[];
+        }>;
+      };
       const resolve = async (w: (typeof wanted)[number], n: number): Promise<Resolved> => {
         const key = `${n}`;
         const id = str(w.project_id);
@@ -614,17 +919,41 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
             const [m, files] = await Promise.all([api.curseforgeProject(modId), api.curseforgeFiles(modId, inst.id)]);
             if (have.has(String(m.id))) return { key, title: m.name, unavailable: "already installed" };
             const f = w.version_id ? files.find((x) => String(x.id) === String(w.version_id)) : (files.find((x) => x.releaseType === 1) ?? files[0]);
-            if (!f) return { key, title: m.name, unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}` };
-            return { key, title: m.name, detail: w.why || f.displayName, install: () => api.installCurseForgeFile(inst.id, modId, f.id, m.name) };
+            if (!f)
+              return {
+                key,
+                title: m.name,
+                unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}`,
+              };
+            return {
+              key,
+              title: m.name,
+              detail: w.why || f.displayName,
+              install: () => api.installCurseForgeFile(inst.id, modId, f.id, m.name),
+            };
           }
           const p = await api.modrinthProject(id);
           if (have.has(p.id)) return { key, title: p.title, unavailable: "already installed" };
           const versions = await api.modrinthVersions(p.id, inst.id);
           const v = w.version_id ? versions.find((x) => x.id === w.version_id) : (versions.find((x) => x.version_type === "release") ?? versions[0]);
-          if (!v) return { key, title: p.title, unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}` };
-          return { key, title: p.title, detail: w.why || v.version_number, install: () => api.installModrinthVersion(inst.id, v.id, p.title) };
+          if (!v)
+            return {
+              key,
+              title: p.title,
+              unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}`,
+            };
+          return {
+            key,
+            title: p.title,
+            detail: w.why || v.version_number,
+            install: () => api.installModrinthVersion(inst.id, v.id, p.title),
+          };
         } catch {
-          return { key, title: id || "Unknown project", unavailable: "not found" };
+          return {
+            key,
+            title: id || "Unknown project",
+            unavailable: "not found",
+          };
         }
       };
       const resolved: Resolved[] = new Array(wanted.length);
@@ -639,7 +968,10 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
       );
       const ok = resolved.filter((r) => !r.unavailable);
       if (ok.length === 0) throw new Nothing(`Nothing to install: ${resolved.map((r) => `${r.title} (${r.unavailable})`).join(", ")}.`);
+      const approved = new Set(useAssistant.getState().plan?.keys ?? []);
+      const fromPlan = approved.size > 0 && wanted.every((w) => approved.has(planKey(w.platform, w.project_id)));
       return {
+        preApproved: fromPlan,
         title: `Install ${ok.length} thing${ok.length > 1 ? "s" : ""} into ${inst.name}`,
         detail: "Each comes with what it requires. Untick anything you don't want.",
         items: resolved.map(({ install: _i, ...rest }) => rest),
@@ -647,7 +979,10 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
         run: async (selected, progress) => {
           const keep = new Set(selected ?? ok.map((r) => r.key));
           const todo = resolved.filter((r) => r.install && keep.has(r.key));
-          const installed: string[] = [], failed: string[] = [], blocked: string[] = [], unresolved: string[] = [];
+          const installed: string[] = [],
+            failed: string[] = [],
+            blocked: string[] = [],
+            unresolved: string[] = [];
           for (const [n, r] of todo.entries()) {
             progress?.(`Installing ${n + 1} of ${todo.length} into ${inst.name}: ${r.title}`);
             try {
@@ -667,7 +1002,8 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
           if (na.length) lines.push(`Not installed: ${na.map((r) => `${r.title} (${r.unavailable})`).join(", ")}.`);
           if (unresolved.length) lines.push(`Couldn't find a fitting version of: ${[...new Set(unresolved)].join(", ")}.`);
           if (failed.length) lines.push(`Failed: ${failed.join("; ")}.`);
-          if (blocked.length) lines.push(`CurseForge only lets its website hand out: ${blocked.join(", ")}. Alloy asks the player to fetch them in its CurseForge window.`);
+          if (blocked.length)
+            lines.push(`CurseForge only lets its website hand out: ${blocked.join(", ")}. Alloy asks the player to fetch them in its CurseForge window.`);
           return lines.join(" ");
         },
       };
@@ -818,17 +1154,21 @@ export function diffLines(a: string, b: string, context = 2): DiffLine[] {
   // Trim the common start and end, then LCS on what's left (configs are small).
   let start = 0;
   while (start < x.length && start < y.length && x[start] === y[start]) start++;
-  let endX = x.length, endY = y.length;
+  let endX = x.length,
+    endY = y.length;
   while (endX > start && endY > start && x[endX - 1] === y[endY - 1]) (endX--, endY--);
-  const mx = x.slice(start, endX), my = y.slice(start, endY);
+  const mx = x.slice(start, endX),
+    my = y.slice(start, endY);
   const raw: { kind: "same" | "add" | "del"; text: string }[] = x.slice(0, start).map((text) => ({ kind: "same" as const, text }));
   if (mx.length * my.length > 4_000_000) {
     raw.push(...mx.map((text) => ({ kind: "del" as const, text })), ...my.map((text) => ({ kind: "add" as const, text })));
   } else {
-    const n = mx.length, m = my.length;
+    const n = mx.length,
+      m = my.length;
     const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
     for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = mx[i] === my[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    let i = 0, j = 0;
+    let i = 0,
+      j = 0;
     while (i < n || j < m) {
       if (i < n && j < m && mx[i] === my[j]) (raw.push({ kind: "same", text: mx[i] }), i++, j++);
       else if (i < n && (j === m || dp[i + 1][j] >= dp[i][j + 1])) (raw.push({ kind: "del", text: mx[i] }), i++);
@@ -859,6 +1199,70 @@ export function userText(m: Msg) {
     .join("\n\n");
 }
 
-
 // Development: the tools, for trying them from the console against the mock or the app.
 if (import.meta.env.DEV) (globalThis as any).alloyAssistantTools = { readers, changers };
+
+/** The crash doctor's plain-words explanation: a short side conversation with read-only tools. */
+export async function explainCrash(instanceId: string, onText: (text: string) => void, signal: { stopped: boolean }): Promise<void> {
+  const inst = await api.instance(instanceId);
+  const tools = ["read_crash", "read_log", "get_instance", "read_file", "get_project"];
+  const messages: Msg[] = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `${CONTEXT_TAG}This is Alloy's crash doctor asking for the player. Instance: "${inst.name}" (instance_id ${inst.id}, Minecraft ${inst.gameVersion}, ${loaderName[inst.loader]}). Answer in plain words for a player, 3 to 6 short sentences: what went wrong, which mod (if any), and what to do. Don't change anything; the doctor's buttons do that.</alloy-context>Why did my game crash?`,
+        },
+      ],
+    },
+  ];
+  let text = "";
+  for (let round = 0; round < 6 && !signal.stopped; round++) {
+    const id = newJobId();
+    sideStreams.set(id, (d) => {
+      if (d.type === "text") {
+        text += d.text;
+        onText(text);
+      }
+    });
+    try {
+      const reply = await api.assistantSend(id, "fast", messages, tools);
+      messages.push({ role: "assistant", content: reply.content });
+      const uses = reply.content.filter((b): b is ToolUse => b.type === "tool_use");
+      if (reply.stopReason !== "tool_use" || uses.length === 0) return;
+      const results: Block[] = [];
+      for (const u of uses) {
+        const r = readers[u.name];
+        let content: string;
+        try {
+          content = r ? cut(await r.run(u.input)) : "Not available here.";
+        } catch (e) {
+          content = String(e);
+        }
+        results.push({ type: "tool_result", tool_use_id: u.id, content });
+      }
+      messages.push({ role: "user", content: results });
+      // Text before a tool call was thinking aloud; the answer comes after.
+      text = "";
+      onText("");
+    } finally {
+      sideStreams.delete(id);
+    }
+  }
+}
+
+/** The Add button on a project card: the newest version that fits, with what it requires. */
+export async function quickInstall(platform: "modrinth" | "curseforge", projectId: string, instanceId: string, title: string) {
+  const inst = await api.instance(instanceId);
+  if (platform === "curseforge") {
+    const files = await api.curseforgeFiles(Number(projectId), inst.id);
+    const f = files.find((x) => x.releaseType === 1) ?? files[0];
+    if (!f) throw `Nothing of ${title} runs on Minecraft ${inst.gameVersion} with ${loaderName[inst.loader]}.`;
+    return api.installCurseForgeFile(inst.id, Number(projectId), f.id, title);
+  }
+  const versions = await api.modrinthVersions(projectId, inst.id);
+  const v = versions.find((x) => x.version_type === "release") ?? versions[0];
+  if (!v) throw `Nothing of ${title} runs on Minecraft ${inst.gameVersion} with ${loaderName[inst.loader]}.`;
+  return api.installModrinthVersion(inst.id, v.id, title);
+}

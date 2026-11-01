@@ -114,6 +114,7 @@ const points: Record<string, SavePoint[]> = {
 };
 
 let chats: any[] = [];
+let memory: string[] = ["Plays on a laptop with 16 GB", "Likes cozy packs; no horror mods"];
 let big: ContentItem[] | null = null;
 /** A 220-mod pack, for long lists. */
 const bigPack = () =>
@@ -136,6 +137,40 @@ async function mockAssistant(requestId: string, messages: any[]) {
   };
   await sleep(500);
   const asked = messages[0].content.map((b: any) => b.text ?? "").join(" ");
+  const turns = messages.filter((m: any) => m.role === "assistant").length;
+  if (asked.includes("crash doctor")) {
+    if (turns === 0) return { content: [tool(0, "read_crash", { instance_id: "fabulously-optimized" })], stopReason: "tool_use" };
+    const text = "**Iris** tried to start while **Sodium** was a version it doesn't support, so the game stopped before the title screen.\n\nTurn Iris off for now (the button below), or update Sodium and Iris together. Your worlds aren't affected.";
+    await stream(0, text);
+    return { content: [{ type: "text", text }], stopReason: "end_turn" };
+  }
+  if (asked.includes("cozy")) {
+    const m = (platform: string, project_id: string, title: string, why: string) => ({ platform, project_id, title, why });
+    if (turns === 0) {
+      const text = "Here's a plan. Untick anything you don't want:";
+      await stream(0, text);
+      const t = tool(1, "propose_pack", {
+        name: "Hearth & Gears", game_version: "1.20.1", loader: "fabric",
+        summary: "A slow, warm farming pack with seasons and lots of food, and Create for big machines when you want them. Light enough for a laptop.",
+        groups: [
+          { name: "Farming and food", items: [m("modrinth", "farmers-delight-refabricated", "Farmer's Delight", "cooking and new crops"), m("modrinth", "croptopia", "Croptopia", "over 50 crops"), m("modrinth", "fabric-seasons", "Fabric Seasons", "crops grow by season")] },
+          { name: "Create and machines", items: [m("modrinth", "create-fabric", "Create", "gears, trains and contraptions"), m("modrinth", "create-steam-n-rails", "Steam 'n' Rails", "bigger trains")] },
+          { name: "Performance", items: [m("modrinth", "sodium", "Sodium", "much higher frame rates"), m("modrinth", "lithium", "Lithium", "faster game logic"), m("modrinth", "ferrite-core", "FerriteCore", "less memory")] },
+        ],
+      });
+      return { content: [{ type: "text", text }, t], stopReason: "tool_use" };
+    }
+    if (turns === 1) {
+      const text = "Great, installing the performance group first. For shaders, these two run well on a laptop:";
+      await stream(0, text);
+      const a = tool(1, "show_projects", { instance_id: "fabulously-optimized", items: [m("modrinth", "complementary-reimagined", "Complementary Reimagined", "soft light, easy on laptops"), m("modrinth", "bsl-shaders", "BSL", "classic warm look")] });
+      const b = tool(2, "install_contents", { instance_id: "fabulously-optimized", items: [m("modrinth", "sodium", "Sodium", "much higher frame rates"), m("modrinth", "lithium", "Lithium", "faster game logic")] });
+      return { content: [{ type: "text", text }, a, b], stopReason: "tool_use" };
+    }
+    const text = "Done. The performance mods are in, and the shaders are one click away above.";
+    await stream(0, text);
+    return { content: [{ type: "text", text }], stopReason: "end_turn" };
+  }
   if (asked.includes("pack")) {
     if (results.length === 0) {
       const text = "Here's a first batch for the performance side:";
@@ -312,7 +347,27 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     case "instance_icon": case "content_icon": return r(null);
     case "assistant_status": return r({ signedIn: true, available: true, dayUsed: 12, monthUsed: 4, unlimited: false });
     case "assistant_send": return r(await mockAssistant(args.requestId, args.messages));
-    case "assistant_cancel": case "assistant_checkpoint": return r(undefined);
+    case "assistant_cancel": return r(undefined);
+    case "assistant_checkpoint": return r(`sp-${Date.now()}`);
+    case "make_server_pack": {
+      for (const m of ["Getting the server", "Installing the loader on the server", "Copying mods", "Copying configs"]) {
+        emitLocal("job-progress", { jobId: `server:${args.instanceId}`, instanceId: args.instanceId, progress: { stage: "loader", current: 0, total: 4, unit: "steps", message: m } });
+        await sleep(500);
+      }
+      return r({ dir: args.dest, mods: 3, leftOut: ["Sodium", "Iris Shaders"], start: "start.sh (Linux, macOS) or start.bat (Windows)", javaMajor: 21, eulaAccepted: args.acceptEula });
+    }
+    case "assistant_memory": return r(memory);
+    case "assistant_memory_set": memory = args.notes; return r(undefined);
+    case "project_cards": {
+      if (args.platform !== "modrinth") return r([]);
+      const res = await fetch(`https://api.modrinth.com/v2/projects?ids=${encodeURIComponent(JSON.stringify(args.ids))}`);
+      const list: any[] = await res.json();
+      return r(list.map((p) => ({
+        platform: "modrinth", id: p.id, title: p.title, description: p.description, author: null, iconUrl: p.icon_url,
+        image: (p.gallery.find((g: any) => g.featured) ?? p.gallery[0])?.url ?? null, downloads: p.downloads,
+        url: `https://modrinth.com/${p.project_type}/${p.slug}`, kind: p.project_type,
+      })));
+    }
     case "assistant_read_file": return r('{\n  "quality": { "weather_quality": "DEFAULT" }\n}');
     case "assistant_current_text": return r('{\n  "quality": {\n    "weather_quality": "DEFAULT",\n    "leaves_quality": "DEFAULT"\n  },\n  "advanced": {}\n}');
     case "assistant_write_file": await sleep(300); return r(undefined);

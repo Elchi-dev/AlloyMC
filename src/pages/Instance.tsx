@@ -3,7 +3,7 @@ import { instanceMenu, openPackPage } from "../lib/menus";
 import { CrashBanner } from "../components/CrashDoctor";
 import { SavePointsTab } from "../components/SavePoints";
 import { ExportDialog } from "../components/ExportDialog";
-import { ArrowDownToLine, BookOpen, ChevronLeft, Copy, FolderOpen, MoreHorizontal, PackageOpen, Search, Trash2, Wrench } from "lucide-react";
+import { ArrowDownToLine, BookOpen, ChevronLeft, Copy, FolderOpen, MoreHorizontal, PackageOpen, Search, Server, Trash2, Wrench } from "lucide-react";
 import { InstanceIcon } from "../components/Art";
 import { Ori } from "../components/ori/Ori";
 import { PlayButton } from "../components/PlayButton";
@@ -149,6 +149,7 @@ function MoreMenu({ instance }: { instance: Instance }) {
     { label: "Open folder", icon: FolderOpen, run: run(() => api.openFolder(instance.id)) },
     ...(instance.linkedPack?.name ? [{ label: "About this pack", icon: BookOpen, run: () => (setOpen(false), void openPackPage(instance)) }] : []),
     { label: "Export as modpack", icon: PackageOpen, run: () => (setOpen(false), setExporting(true)) },
+    { label: "Make a server", icon: Server, run: () => (setOpen(false), useStore.getState().setServerPack(instance.id)) },
     { label: "Duplicate", icon: Copy, run: run(() => api.duplicateInstance(instance.id, `${instance.name} copy`)) },
     {
       label: "Repair files",

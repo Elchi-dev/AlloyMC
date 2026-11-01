@@ -1,7 +1,7 @@
 // What right-clicking things offers. Each builder returns the items for one kind of thing,
 // so the same instance gets the same menu on Home, in the Library and on its own page.
 
-import { BookOpen, Bookmark, Copy, ExternalLink, FolderInput, FolderOpen, Play, PowerOff, Power, Sparkles, Trash2, Wrench } from "lucide-react";
+import { BookOpen, Bookmark, Copy, ExternalLink, FolderInput, FolderOpen, Play, PowerOff, Power, Server, Sparkles, Trash2, Wrench } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { MenuItem } from "../components/ContextMenu";
 import { api, isTauri, newJobId } from "./api";
@@ -38,6 +38,7 @@ export function instanceMenu(i: Instance): MenuItem[] {
     sep,
     { label: "Open folder", icon: FolderOpen, run: () => api.openFolder(i.id).catch(toastError) },
     { label: "Duplicate", icon: Copy, run: () => api.duplicateInstance(i.id, `${i.name} copy`).catch(toastError) },
+    { label: "Make a server…", icon: Server, run: () => useStore.getState().setServerPack(i.id) },
     { label: "Repair files", icon: Wrench, run: () => api.installInstance(i.id, newJobId(), true).catch(toastError) },
     sep,
     {

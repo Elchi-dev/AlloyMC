@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+The assistant grows up, and servers from any instance.
+
+- **Pack plans.** Ask for a new pack and Claude first shows a plan: a name, what it's
+  like, and the mods grouped by theme. Review every mod with icons in a full-size view,
+  untick what you don't want, add a note, then approve once. Installing from the approved
+  plan doesn't ask again.
+- **Mod cards.** Suggestions come as cards with the icon, a screenshot, downloads and an
+  Add button that installs straight into the instance.
+- **Undo a reply.** Alloy makes a save point before Claude's changes; "Undo these changes"
+  under the reply puts everything back.
+- **The crash doctor explains.** "Explain it in plain words" asks Claude to read the
+  crash report and the log and say what happened in a few sentences, with a follow-up
+  into the assistant.
+- **Claude can run the crash search** (the halves test) when it isn't sure which mod
+  crashes, after you allow it.
+- **Claude remembers what you tell it** about your taste and your PC across
+  conversations. See and delete the notes under Conversations.
+- **Recipes and scripts:** KubeJS scripts on 1.16+ and CraftTweaker scripts on 1.12.2.
+- **Make a server** from any instance (right-click it, or the … menu): the same Minecraft
+  and loader, the mods without client-only ones like shaders and Sodium, the configs, and
+  start scripts. Tick the EULA box or accept it later in eula.txt. Claude can do this too.
+
 ## 0.4.2
 
 - **One click for a whole batch.** When Claude adds several mods, they arrive as one card
