@@ -7,6 +7,8 @@ import { ArrowUpCircle, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, isTauri } from "../lib/api";
 import { toastError, useStore } from "../lib/store";
+import { listen } from "../lib/bus";
+import type { FoundUpdate } from "../lib/types";
 
 const CHECK_EVERY = 60_000;
 
@@ -37,6 +39,14 @@ export function useUpdates() {
     }).catch(() => {});
     check();
     window.addEventListener("focus", check);
+    // Downloaded from AlloyMC in the background and verified.
+    const offReady = listen("update-ready", (u: FoundUpdate) => {
+      const prev = useStore.getState().update;
+      setUpdate(u);
+      if (prev?.manifest.version !== u.manifest.version) {
+        useStore.getState().toast({ kind: "info", text: `Alloy ${u.manifest.version} is downloaded and ready to install`, action: { label: "Install", run: () => applyUpdate(u.path) } });
+      }
+    });
 
     // Dropping an .alloyupdate file anywhere on the window offers it.
     let unlisten: (() => void) | undefined;
@@ -58,6 +68,7 @@ export function useUpdates() {
     }
     return () => {
       window.removeEventListener("focus", check);
+      offReady();
       unlisten?.();
     };
   }, [setUpdate]);

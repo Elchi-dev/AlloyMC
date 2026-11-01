@@ -24,6 +24,9 @@ pub struct Settings {
     pub custom_msa_client_id: Option<String>,
     /// CurseForge Core API key from console.curseforge.com.
     pub curseforge_api_key: Option<String>,
+    /// Ask AlloyMC for new versions and download them in the background (installing still
+    /// waits for a click).
+    pub auto_update: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,6 +76,7 @@ impl Default for Settings {
             on_launch: OnLaunch::KeepOpen,
             custom_msa_client_id: None,
             curseforge_api_key: None,
+            auto_update: true,
         }
     }
 }

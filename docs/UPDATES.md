@@ -3,17 +3,24 @@
 Alloy updates in place with one click. Nothing to uninstall; your instances, worlds,
 accounts and settings stay where they are.
 
-## How it works today
+## How it works
 
-1. Download `Alloy_<version>_windows-x86_64.alloyupdate` from the
-   [releases](https://github.com/Elchi-dev/AlloyMC/releases) into your Downloads folder
-   (or drop it onto Alloy's window, or pick it in Settings → Updates).
-2. Alloy notices it when it opens or comes back into focus, verifies it, and shows a gold
+1. From 0.3.1, Alloy asks AlloyMC (`api.alloymc.dev/v1/launcher/releases/latest`) for the
+   newest release 20 seconds after it starts and every 6 hours, and downloads the update
+   file for your system from the GitHub release into `<data>/updates`. Turn this off in
+   Settings → Updates, or press **Check now** there. A Linux build installed by a package
+   manager skips this; update it through the package manager.
+   You can still download `Alloy_<version>_<platform>.alloyupdate` from the
+   [releases](https://github.com/Elchi-dev/AlloyMC/releases) yourself, into your Downloads
+   folder, onto Alloy's window, or picked in Settings → Updates.
+2. Alloy verifies it (the hash AlloyMC announced, then both signatures) and shows a gold
    update button in the sidebar.
 3. Click **Restart and update**. Alloy backs up its records, hands over to the installer in
    update mode, and starts again on the new version. A toast confirms it.
 
-When the Alloy server exists, step 1 happens by itself; everything after stays the same.
+AlloyMC only says where the newest file is. Alloy fetches only from the AlloyMC GitHub
+releases and installs only what the release key signed, so a compromised server can't ship
+code.
 
 ## Why it is safe
 

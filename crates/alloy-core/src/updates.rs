@@ -11,7 +11,11 @@
 //!
 //! Alloy accepts a file only if both signatures verify against the public key compiled in
 //! below, the sha256 matches, and the platform is this one. The private key exists only in
-//! the repository's secrets. Later the server serves the same files; nothing here changes.
+//! the repository's secrets.
+//!
+//! Alloy also asks AlloyMC for the newest release (`check_remote`) and downloads its file
+//! into `<data>/updates` (`download`). The same checks apply to a downloaded file: the
+//! server can say where a file is, but only the release key can make Alloy install it.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -290,5 +294,125 @@ mod tests {
         let o = take_outcome(dir.path(), "0.2.0").unwrap();
         assert!(o.ok);
         assert!(take_outcome(dir.path(), "0.2.0").is_none());
+    }
+}
+
+// ---------- from AlloyMC ----------
+
+/// What AlloyMC says about the newest release.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Latest {
+    pub version: String,
+    #[serde(default)]
+    pub updates: std::collections::HashMap<String, RemoteFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct RemoteFile {
+    pub url: String,
+    pub sha256: String,
+    #[serde(default)]
+    pub size: u64,
+}
+
+/// An update AlloyMC offers for this platform that is newer than `current_version`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Offer {
+    pub version: String,
+    pub file: RemoteFile,
+}
+
+/// The release feed: `api.alloymc.dev/v1/launcher/releases/latest` unless `ALLOY_MC_API`
+/// points elsewhere.
+pub fn latest_url() -> String {
+    format!("{}/v1/launcher/releases/latest", crate::alloymc::api_url())
+}
+
+pub async fn check_remote(http: &reqwest::Client, url: &str, current_version: &str) -> Result<Option<Offer>> {
+    let latest: Latest = http.get(url).send().await?.error_for_status()?.json().await?;
+    Ok(offer_for(latest, &platform(), current_version))
+}
+
+fn offer_for(latest: Latest, platform: &str, current_version: &str) -> Option<Offer> {
+    if !compare(&latest.version, current_version).is_gt() {
+        return None;
+    }
+    let file = latest.updates.get(platform)?.clone();
+    // Only GitHub release downloads: a feed that pointed somewhere else would still fail the
+    // signature check, but there's no reason to fetch from anywhere else at all.
+    if !file.url.starts_with("https://github.com/Elchi-dev/AlloyMC/releases/download/") {
+        return None;
+    }
+    Some(Offer { version: latest.version, file })
+}
+
+/// Downloads an offered update into `dir` (once; an earlier complete download is reused),
+/// checks its hash and both signatures, and removes older update files there.
+pub async fn download(http: &reqwest::Client, offer: &Offer, dir: &Path, current_version: &str) -> Result<FoundUpdate> {
+    tokio::fs::create_dir_all(dir).await?;
+    let name = format!("Alloy_{}_{}.{EXTENSION}", offer.version, platform());
+    let dest = dir.join(&name);
+    let have = match tokio::fs::read(&dest).await {
+        Ok(b) => hex::encode(Sha256::digest(&b)).eq_ignore_ascii_case(&offer.file.sha256),
+        Err(_) => false,
+    };
+    if !have {
+        let task = crate::download::DownloadTask::new(&offer.file.url, &dest);
+        crate::download::download_with_retry(http, &task).await?;
+        let bytes = tokio::fs::read(&dest).await?;
+        if !hex::encode(Sha256::digest(&bytes)).eq_ignore_ascii_case(&offer.file.sha256) {
+            let _ = tokio::fs::remove_file(&dest).await;
+            return Err(Error::other("The downloaded update doesn't match what AlloyMC announced"));
+        }
+    }
+    let (path, current) = (dest.clone(), current_version.to_string());
+    let found = tokio::task::spawn_blocking(move || inspect(&path, &current)).await.map_err(|e| Error::other(e.to_string()))?;
+    let found = match found {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&dest).await;
+            return Err(e);
+        }
+    };
+    // Older downloads are of no use any more.
+    if let Ok(mut rd) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(e)) = rd.next_entry().await {
+            let p = e.path();
+            if p != dest && p.extension().and_then(|x| x.to_str()) == Some(EXTENSION) {
+                let _ = tokio::fs::remove_file(p).await;
+            }
+        }
+    }
+    Ok(found)
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+
+    fn latest(version: &str, url: &str) -> Latest {
+        let mut updates = std::collections::HashMap::new();
+        updates.insert("windows-x86_64".to_string(), RemoteFile { url: url.into(), sha256: "ab".into(), size: 1 });
+        Latest { version: version.into(), updates }
+    }
+
+    #[test]
+    fn offers_only_newer_versions_for_this_platform() {
+        let gh = "https://github.com/Elchi-dev/AlloyMC/releases/download/v0.3.1/Alloy_0.3.1_windows-x86_64.alloyupdate";
+        assert!(offer_for(latest("0.3.1", gh), "windows-x86_64", "0.3.0").is_some());
+        assert!(offer_for(latest("0.3.0", gh), "windows-x86_64", "0.3.0").is_none());
+        assert!(offer_for(latest("0.2.9", gh), "windows-x86_64", "0.3.0").is_none());
+        assert!(offer_for(latest("0.3.1", gh), "linux-x86_64", "0.3.0").is_none());
+        assert!(offer_for(latest("0.3.1", "https://example.com/evil.alloyupdate"), "windows-x86_64", "0.3.0").is_none());
+    }
+
+    #[test]
+    fn reads_the_feed() {
+        let json = r#"{"version":"0.3.0","notes":"x","published":"2026-11-01T10:20:13Z","updates":{"linux-x86_64":{"sha256":"79","size":87184624,"url":"https://github.com/Elchi-dev/AlloyMC/releases/download/v0.3.0/Alloy_0.3.0_linux-x86_64.alloyupdate"}}}"#;
+        let l: Latest = serde_json::from_str(json).unwrap();
+        let o = offer_for(l, "linux-x86_64", "0.2.1").unwrap();
+        assert_eq!(o.version, "0.3.0");
+        assert_eq!(o.file.size, 87184624);
     }
 }

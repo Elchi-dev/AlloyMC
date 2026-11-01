@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+The last update you install by hand.
+
+- **Updates arrive by themselves.** Alloy asks AlloyMC for the newest version when it
+  starts and every six hours, downloads it in the background and shows the gold update
+  button; installing still waits for your click. Every file is checked against the hash
+  AlloyMC announced and against Alloy's release key before it's offered, exactly like a
+  file you download yourself. Turn it off, or check right away, in Settings → Updates.
+
 ## 0.3.0
 
 Alloy and AlloyMC meet: sign in, link Minecraft, CurseForge without a key. Plus a crash

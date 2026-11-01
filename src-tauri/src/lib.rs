@@ -76,6 +76,7 @@ pub fn run() {
             app.manage(alloymc::SignIn::default());
             app.manage(jobs::Jobs::default());
             doctor::recover_on_start(launcher.clone());
+            updater::start_auto(app.handle().clone());
             jobs::start_speed_meter(app.handle().clone());
             content::start_blocked_watcher(app.handle().clone());
 
@@ -187,6 +188,7 @@ pub fn run() {
             packs::import_instance,
             content::clear_jobs,
             content::retry_job,
+            updater::update_check_now,
             updater::check_updates,
             updater::inspect_update,
             updater::update_outcome,

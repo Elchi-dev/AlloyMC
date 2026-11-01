@@ -33,7 +33,7 @@ React UI (TypeScript) ── invoke() / events ──► src-tauri (app shell) �
 
 `examples/` holds runnable checks: `smoke` (create, install, launch any loader), `pack`
 (install, scan and check a Modrinth pack), `check`, `content` (install, fixes, updates,
-blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
+blocked files), `launch`, `bench`, `textures`, `curseforge`, `fingerprint`, `update` (ask AlloyMC for a release, download and verify it), `export` (export as both formats and import back), `doctor` (a real crash diagnosed and bisected; needs a display or
 xvfb-run), `alloymc` (sign in
 to a running alloy-server and back out).
 

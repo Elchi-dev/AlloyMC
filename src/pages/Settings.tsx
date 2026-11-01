@@ -6,7 +6,7 @@ import { useAlloyMc, useSettings } from "../lib/queries";
 import { queryClient } from "../lib/queries";
 import { toastError, useStore } from "../lib/store";
 import type { Settings } from "../lib/types";
-import { Segmented } from "../components/ui";
+import { Segmented, Switch } from "../components/ui";
 import { open as openFile } from "@tauri-apps/plugin-dialog";
 import { applyUpdate } from "../components/Updates";
 import { isTauri } from "../lib/api";
@@ -95,7 +95,7 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <UpdatesSection version={info.data?.version} />
+      <UpdatesSection version={info.data?.version} auto={draft.autoUpdate ?? true} setAuto={(v) => set("autoUpdate", v)} />
 
       <Section title="About" index={5}>
         <Row label="Version">
@@ -192,9 +192,22 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-function UpdatesSection({ version }: { version?: string }) {
+function UpdatesSection({ version, auto, setAuto }: { version?: string; auto: boolean; setAuto: (v: boolean) => void }) {
   const update = useStore((s) => s.update);
   const setUpdate = useStore((s) => s.setUpdate);
+  const [checking, setChecking] = useState(false);
+  const checkNow = async () => {
+    setChecking(true);
+    try {
+      const u = await api.updateCheckNow();
+      if (u) setUpdate(u);
+      else useStore.getState().toast({ kind: "success", text: `Alloy ${version} is the newest version` });
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setChecking(false);
+    }
+  };
   const pick = async () => {
     const path = await openFile({ filters: [{ name: "Alloy update", extensions: ["alloyupdate"] }] });
     if (typeof path !== "string") return;
@@ -206,8 +219,16 @@ function UpdatesSection({ version }: { version?: string }) {
   };
   return (
     <Section title="Updates" index={4}>
-      <Row label="Installed" hint="Alloy looks for .alloyupdate files in your Downloads folder whenever it opens or regains focus. You can also drop one onto the window.">
+      <Row label="Installed">
         <span className="block pt-2 text-ink-2">Alloy {version}</span>
+      </Row>
+      <Row label="Automatic updates" hint="Alloy asks AlloyMC for new versions when it starts and every few hours, and downloads them in the background. Installing waits for your click, and Alloy only installs files signed with its release key.">
+        <div className="flex items-center gap-3 pt-1">
+          <Switch on={auto} onChange={() => setAuto(!auto)} label="Check for updates automatically" />
+          <button className="btn btn-quiet" onClick={checkNow} disabled={checking || !isTauri}>
+            {checking ? <span className="spinner" /> : null} Check now
+          </button>
+        </div>
       </Row>
       <Row label="Available">
         {update ? (
@@ -222,7 +243,7 @@ function UpdatesSection({ version }: { version?: string }) {
           </div>
         ) : (
           <div className="flex items-center gap-3 pt-1">
-            <span className="text-ink-3">No update found</span>
+            <span className="text-ink-3">Nothing newer</span>
             <button className="btn" onClick={pick} disabled={!isTauri}>Install update from file…</button>
           </div>
         )}

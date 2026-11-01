@@ -98,6 +98,7 @@ export interface Settings {
   onLaunch: "keep_open" | "minimize" | "close";
   customMsaClientId?: string | null;
   curseforgeApiKey?: string | null;
+  autoUpdate?: boolean;
 }
 
 export type Stage =

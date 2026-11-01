@@ -25,7 +25,7 @@ const db = {
   active: "a1b2c3" as string | null,
   settings: {
     theme: "dark", accent: "#f8c95a", motion: "full", background: "forge", defaultMemoryMb: 4096, defaultJvmArgs: [],
-    maxConcurrentDownloads: 16, onLaunch: "keep_open", customMsaClientId: null, curseforgeApiKey: null,
+    maxConcurrentDownloads: 16, onLaunch: "keep_open", customMsaClientId: null, curseforgeApiKey: null, autoUpdate: true,
   } as Settings,
   running: new Set<string>(),
   alloymc: null as null | { handle: string; displayName: string; avatarUrl: string; profileUrl: string; accent: string; followers: number; following: number; email: string; emailVerified: boolean; minecraft: { uuid: string; name: string; shown: boolean }[] },
@@ -164,6 +164,7 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
     }
     case "stop_instance": db.running.delete(args.id); emitLocal("game-state", { instanceId: args.id, state: "exited", exitCode: 0 }); return r(undefined);
     case "running_instances": return r([...db.running]);
+    case "update_check_now": await sleep(800); return r(null);
     case "crash_last": return r(crashes[args.instanceId] ?? null);
     case "savepoints": return r({ points: points[args.instanceId] ?? [], diskBytes: (points[args.instanceId] ?? []).length ? 7_200_000 : 0 });
     case "savepoint_create": {

@@ -4,12 +4,16 @@
 //! back up Alloy's records → stage the installer → write a pending marker → start the
 //! installer in update mode and quit → the installer restarts Alloy → on start, the marker
 //! tells the UI whether the update landed.
+//!
+//! With "auto update" on (the default), Alloy also asks AlloyMC for the newest release a
+//! little after starting and every few hours, downloads it into `<data>/updates` and offers
+//! it. Installing always waits for a click.
 
 use std::path::{Path, PathBuf};
 
 use alloy_core::updates::{self, FoundUpdate, Pending, UpdateOutcome};
 use alloy_core::{Error, Result};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
@@ -38,6 +42,56 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
 pub async fn check_updates(state: State<'_, AppState>) -> Result<Option<FoundUpdate>> {
     let dirs = search_dirs(&state);
     blocking(move || Ok(updates::scan(&dirs, VERSION))).await
+}
+
+/// Builds that can replace themselves. A Linux build installed by a package manager can't.
+fn can_self_update() -> bool {
+    !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some()
+}
+
+/// Asks AlloyMC for a newer version and downloads it. `None` when there's nothing newer.
+async fn fetch_update(app: &AppHandle) -> Result<Option<FoundUpdate>> {
+    if !can_self_update() {
+        return Ok(None);
+    }
+    let state = app.state::<AppState>();
+    let http = state.launcher.http.clone();
+    let Some(offer) = updates::check_remote(&http, &updates::latest_url(), VERSION).await? else {
+        return Ok(None);
+    };
+    tracing::info!("Alloy {} is out; downloading it", offer.version);
+    let found = updates::download(&http, &offer, &updates_dir(&state), VERSION).await?;
+    Ok(Some(found))
+}
+
+/// "Check now" in Settings.
+#[tauri::command]
+pub async fn update_check_now(app: AppHandle) -> Result<Option<FoundUpdate>> {
+    let found = fetch_update(&app).await?;
+    if let Some(f) = &found {
+        let _ = app.emit("update-ready", f);
+    }
+    Ok(found)
+}
+
+/// Checks a little after start, then every few hours, while auto update is on.
+pub fn start_auto(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        loop {
+            let on = app.state::<AppState>().launcher.settings.read().await.auto_update;
+            if on {
+                match fetch_update(&app).await {
+                    Ok(Some(f)) => {
+                        let _ = app.emit("update-ready", &f);
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::info!("update check failed: {e}"),
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+        }
+    });
 }
 
 /// Verifies a specific file (picked in Settings or dropped on the window).
