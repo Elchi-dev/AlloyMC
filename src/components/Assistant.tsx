@@ -9,7 +9,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { ArrowUp, Ban, BookOpen, Brain, Check, ChevronDown, ChevronLeft, Gauge, History, LogIn, Package, Sparkles, Square, SquarePen, Trash2, TriangleAlert, Wrench, X } from "lucide-react";
 import { api } from "../lib/api";
-import { useAssistant, userText, type Approval, type AssistantStatus, type Block, type DiffLine, type Msg } from "../lib/assistant";
+import { useAssistant, userText, type Approval, type AssistantStatus, type BatchItem, type Block, type DiffLine, type Msg } from "../lib/assistant";
 import { openExternal } from "../lib/menus";
 import { useInstance } from "../lib/queries";
 import { ago } from "../lib/format";
@@ -329,6 +329,11 @@ function ToolRow({ id, name, result, pending }: { id: string; name: string; resu
   );
 }
 
+// Lucide's copy and check, inline: the buttons are added to rendered HTML, outside React.
+const COPY_ICONS =
+  '<svg class="i-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>' +
+  '<svg class="i-done" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
 function Markdown({ text }: { text: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => DOMPurify.sanitize(marked.parse(text, { async: false, breaks: true }) as string), [text]);
@@ -336,7 +341,21 @@ function Markdown({ text }: { text: string }) {
     const el = ref.current;
     if (!el) return;
     const onClick = (e: MouseEvent) => {
-      const a = (e.target as HTMLElement).closest("a");
+      const target = e.target as HTMLElement;
+      const copy = target.closest<HTMLButtonElement>("button.code-copy");
+      if (copy) {
+        const code = copy.parentElement?.querySelector("code")?.textContent ?? "";
+        void navigator.clipboard.writeText(code.replace(/\n$/, "")).then(() => {
+          copy.dataset.done = "";
+          copy.setAttribute("aria-label", "Copied");
+          setTimeout(() => {
+            delete copy.dataset.done;
+            copy.setAttribute("aria-label", "Copy");
+          }, 1400);
+        });
+        return;
+      }
+      const a = target.closest("a");
       if (a?.href) {
         e.preventDefault();
         void openExternal(a.href);
@@ -345,6 +364,19 @@ function Markdown({ text }: { text: string }) {
     el.addEventListener("click", onClick);
     return () => el.removeEventListener("click", onClick);
   }, []);
+  // A copy button on every code block.
+  useEffect(() => {
+    ref.current?.querySelectorAll("pre").forEach((pre) => {
+      if (pre.querySelector(".code-copy")) return;
+      const b = document.createElement("button");
+      b.className = "code-copy";
+      b.type = "button";
+      b.setAttribute("aria-label", "Copy");
+      b.title = "Copy";
+      b.innerHTML = COPY_ICONS;
+      pre.appendChild(b);
+    });
+  }, [html]);
   if (!text.trim()) return null;
   return <div ref={ref} className="prose-alloy prose-chat" data-selectable dangerouslySetInnerHTML={{ __html: html }} />;
 }
@@ -501,6 +533,16 @@ function Composer({ status }: { status: AssistantStatus }) {
 
 function ApprovalCard({ a }: { a: Approval }) {
   const answer = useAssistant((s) => s.answer);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set((a.items ?? []).filter((i) => !i.unavailable).map((i) => i.key)));
+  const batch = !!a.items;
+  const chosen = batch ? [...picked] : undefined;
+  const toggle = (key: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -521,9 +563,10 @@ function ApprovalCard({ a }: { a: Approval }) {
           <Diff lines={a.diff} />
         </div>
       )}
+      {a.items && <Checklist items={a.items} picked={picked} toggle={toggle} />}
       <div className="mt-3 flex items-center gap-2 border-t border-line-soft/80 px-3.5 py-2.5">
         {!a.always && (
-          <button className="mr-auto rounded-[6px] text-[12px] text-ink-3 transition-colors hover:text-ink" onClick={() => answer(true, true)}>
+          <button className="mr-auto rounded-[6px] text-[12px] text-ink-3 transition-colors hover:text-ink" onClick={() => answer(true, true, chosen)}>
             Allow the rest of this chat
           </button>
         )}
@@ -531,11 +574,48 @@ function ApprovalCard({ a }: { a: Approval }) {
         <button className="btn btn-quiet h-8" onClick={() => answer(false)}>
           Decline
         </button>
-        <button className="btn btn-gold h-8" onClick={() => answer(true)}>
-          <Check size={13} strokeWidth={2.6} /> Allow
+        <button className="btn btn-gold h-8" disabled={batch && picked.size === 0} onClick={() => answer(true, false, chosen)}>
+          <Check size={13} strokeWidth={2.6} /> {batch ? `Install ${picked.size}` : "Allow"}
         </button>
       </div>
     </motion.div>
+  );
+}
+
+/** A batch's items, each with a tick the player can take away. */
+function Checklist({ items, picked, toggle }: { items: BatchItem[]; picked: Set<string>; toggle: (key: string) => void }) {
+  const available = items.filter((i) => !i.unavailable);
+  const all = available.every((i) => picked.has(i.key));
+  return (
+    <div className="mt-2.5 px-3.5">
+      <div className="mb-1 flex items-center justify-between text-[11.5px] text-ink-3">
+        <span>
+          {picked.size} of {available.length} ticked
+        </span>
+        <button
+          className="rounded-[4px] transition-colors hover:text-ink"
+          onClick={() => available.forEach((i) => (all ? picked.has(i.key) : !picked.has(i.key)) && toggle(i.key))}
+        >
+          {all ? "Untick all" : "Tick all"}
+        </button>
+      </div>
+      <ul className="max-h-64 overflow-y-auto rounded-[8px] border border-line-soft bg-slate-950/60">
+        {items.map((i) => {
+          const on = picked.has(i.key);
+          return (
+            <li key={i.key} className="border-b border-line-soft/70 last:border-b-0">
+              <label className={`flex items-start gap-2.5 px-2.5 py-2 ${i.unavailable ? "opacity-55" : "cursor-pointer hover:bg-slate-850"}`}>
+                <input type="checkbox" className="ai-check mt-[2px]" checked={on} disabled={!!i.unavailable} onChange={() => toggle(i.key)} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] text-ink">{i.title}</span>
+                  <span className="block truncate text-[11.5px] text-ink-3">{i.unavailable ? `Skipped: ${i.unavailable}` : i.detail}</span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

@@ -64,7 +64,19 @@ export interface Approval {
   diff?: DiffLine[];
   /** Deleting always asks, even after "allow the rest". */
   always: boolean;
+  /** A batch: what the player can tick or untick. */
+  items?: BatchItem[];
 }
+
+export interface BatchItem {
+  key: string;
+  title: string;
+  detail?: string;
+  /** Can't be installed (no fitting version, already there); shown, not ticked. */
+  unavailable?: string;
+}
+
+type Answer = { kind: "allow" | "decline" | "rest"; selected?: string[] };
 
 interface State {
   open: boolean;
@@ -89,7 +101,7 @@ interface State {
 
   send: (text: string) => Promise<void>;
   stop: () => void;
-  answer: (allow: boolean, rest?: boolean) => void;
+  answer: (allow: boolean, rest?: boolean, selected?: string[]) => void;
   reset: () => void;
   load: (id: string) => Promise<void>;
   /** Opens the panel and asks straight away, about an instance. */
@@ -101,7 +113,7 @@ const RESULT_LIMIT = 30_000;
 
 let requestId: string | null = null;
 let stopped = false;
-let resolveApproval: ((v: "allow" | "decline" | "rest") => void) | null = null;
+let resolveApproval: ((v: Answer) => void) | null = null;
 /** Instances already given a save point in this conversation. */
 let checkpointed = new Set<string>();
 
@@ -154,11 +166,11 @@ export const useAssistant = create<State>((set, get) => ({
   stop: () => {
     stopped = true;
     if (requestId) void api.assistantCancel(requestId).catch(() => {});
-    resolveApproval?.("decline");
+    resolveApproval?.({ kind: "decline" });
   },
 
-  answer: (allow, rest) => {
-    resolveApproval?.(allow ? (rest ? "rest" : "allow") : "decline");
+  answer: (allow, rest, selected) => {
+    resolveApproval?.({ kind: allow ? (rest ? "rest" : "allow") : "decline", selected });
   },
 
   send: async (text) => {
@@ -172,7 +184,7 @@ export const useAssistant = create<State>((set, get) => ({
       for (let round = 0; round < MAX_ROUNDS && !stopped; round++) {
         requestId = newJobId();
         set({ live: { blocks: {} } });
-        const reply = await api.assistantSend(requestId, get().mode, get().messages);
+        const reply = await api.assistantSend(requestId, get().mode, get().messages, toolNames());
         requestId = null;
         set((s) => ({ live: null, messages: [...s.messages, { role: "assistant", content: reply.content }] }));
         const uses = reply.content.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
@@ -257,7 +269,9 @@ interface Plan {
   title: string;
   detail?: string;
   diff?: DiffLine[];
-  run: () => Promise<string>;
+  /** `selected`: the batch items the player kept; `progress` relabels the row while it runs. */
+  run: (selected?: string[], progress?: (text: string) => void) => Promise<string>;
+  items?: BatchItem[];
   /** The instance the change touches, for the save point. */
   instanceId?: string;
   noCheckpoint?: boolean;
@@ -291,22 +305,24 @@ async function runTool(u: ToolUse, set: Setter, get: () => State): Promise<Block
     }
     label(plan.title);
     const always = u.name === "remove_content";
+    let selected = plan.items?.filter((i) => !i.unavailable).map((i) => i.key);
     if (!get().allowRest || always) {
-      set({ approval: { toolUseId: u.id, name: u.name, title: plan.title, detail: plan.detail, diff: plan.diff, always } });
-      const answer = await new Promise<"allow" | "decline" | "rest">((r) => (resolveApproval = r));
+      set({ approval: { toolUseId: u.id, name: u.name, title: plan.title, detail: plan.detail, diff: plan.diff, always, items: plan.items } });
+      const answer = await new Promise<Answer>((r) => (resolveApproval = r));
       resolveApproval = null;
       set({ approval: null });
-      if (answer === "decline") {
+      if (answer.kind === "decline" || (plan.items && answer.selected?.length === 0)) {
         set((s) => ({ labels: { ...s.labels, [u.id]: `Declined: ${plan.title}` } }));
         return result(stopped ? "Stopped by the player." : "The player declined this.", true);
       }
-      if (answer === "rest") set({ allowRest: true });
+      if (answer.kind === "rest") set({ allowRest: true });
+      if (answer.selected) selected = answer.selected;
     }
     if (plan.instanceId && !plan.noCheckpoint && !checkpointed.has(plan.instanceId)) {
       checkpointed.add(plan.instanceId);
       await api.assistantCheckpoint(plan.instanceId).catch(() => {});
     }
-    return result(await plan.run());
+    return result(await plan.run(selected, label));
   } catch (e) {
     return result(String(e), true);
   }
@@ -580,6 +596,83 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
       };
     },
   },
+  install_contents: {
+    plan: async (i) => {
+      const inst = await instanceNamed(str(i.instance_id));
+      const wanted: { platform?: string; project_id?: string; version_id?: string; why?: string }[] = Array.isArray(i.items) ? i.items.slice(0, 40) : [];
+      if (wanted.length === 0) throw "No items to install.";
+      const ov = await api.overview(inst.id).catch(() => null);
+      const have = new Set((ov?.items ?? []).map((x) => x.meta?.projectId).filter(Boolean) as string[]);
+      // Look every item up first (a few at a time) so the card shows real names and versions.
+      type Resolved = BatchItem & { install?: () => Promise<{ installed: string[]; unresolved: string[]; blocked: { title: string }[] }> };
+      const resolve = async (w: (typeof wanted)[number], n: number): Promise<Resolved> => {
+        const key = `${n}`;
+        const id = str(w.project_id);
+        try {
+          if (w.platform === "curseforge") {
+            const modId = Number(id);
+            const [m, files] = await Promise.all([api.curseforgeProject(modId), api.curseforgeFiles(modId, inst.id)]);
+            if (have.has(String(m.id))) return { key, title: m.name, unavailable: "already installed" };
+            const f = w.version_id ? files.find((x) => String(x.id) === String(w.version_id)) : (files.find((x) => x.releaseType === 1) ?? files[0]);
+            if (!f) return { key, title: m.name, unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}` };
+            return { key, title: m.name, detail: w.why || f.displayName, install: () => api.installCurseForgeFile(inst.id, modId, f.id, m.name) };
+          }
+          const p = await api.modrinthProject(id);
+          if (have.has(p.id)) return { key, title: p.title, unavailable: "already installed" };
+          const versions = await api.modrinthVersions(p.id, inst.id);
+          const v = w.version_id ? versions.find((x) => x.id === w.version_id) : (versions.find((x) => x.version_type === "release") ?? versions[0]);
+          if (!v) return { key, title: p.title, unavailable: `nothing for ${inst.gameVersion} ${loaderName[inst.loader]}` };
+          return { key, title: p.title, detail: w.why || v.version_number, install: () => api.installModrinthVersion(inst.id, v.id, p.title) };
+        } catch {
+          return { key, title: id || "Unknown project", unavailable: "not found" };
+        }
+      };
+      const resolved: Resolved[] = new Array(wanted.length);
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(6, wanted.length) }, async () => {
+          while (next < wanted.length) {
+            const n = next++;
+            resolved[n] = await resolve(wanted[n], n);
+          }
+        }),
+      );
+      const ok = resolved.filter((r) => !r.unavailable);
+      if (ok.length === 0) throw new Nothing(`Nothing to install: ${resolved.map((r) => `${r.title} (${r.unavailable})`).join(", ")}.`);
+      return {
+        title: `Install ${ok.length} thing${ok.length > 1 ? "s" : ""} into ${inst.name}`,
+        detail: "Each comes with what it requires. Untick anything you don't want.",
+        items: resolved.map(({ install: _i, ...rest }) => rest),
+        instanceId: inst.id,
+        run: async (selected, progress) => {
+          const keep = new Set(selected ?? ok.map((r) => r.key));
+          const todo = resolved.filter((r) => r.install && keep.has(r.key));
+          const installed: string[] = [], failed: string[] = [], blocked: string[] = [], unresolved: string[] = [];
+          for (const [n, r] of todo.entries()) {
+            progress?.(`Installing ${n + 1} of ${todo.length} into ${inst.name}: ${r.title}`);
+            try {
+              const out = await r.install!();
+              installed.push(...out.installed);
+              unresolved.push(...out.unresolved);
+              blocked.push(...out.blocked.map((b) => b.title));
+            } catch (e) {
+              failed.push(`${r.title} (${String(e)})`);
+            }
+          }
+          progress?.(`Installed ${todo.length - failed.length} of ${todo.length} into ${inst.name}`);
+          const skipped = resolved.filter((r) => r.install && !keep.has(r.key)).map((r) => r.title);
+          const lines = [installed.length ? `Installed: ${[...new Set(installed)].join(", ")}.` : "Nothing new was installed."];
+          if (skipped.length) lines.push(`The player unticked: ${skipped.join(", ")}.`);
+          const na = resolved.filter((r) => r.unavailable);
+          if (na.length) lines.push(`Not installed: ${na.map((r) => `${r.title} (${r.unavailable})`).join(", ")}.`);
+          if (unresolved.length) lines.push(`Couldn't find a fitting version of: ${[...new Set(unresolved)].join(", ")}.`);
+          if (failed.length) lines.push(`Failed: ${failed.join("; ")}.`);
+          if (blocked.length) lines.push(`CurseForge only lets its website hand out: ${blocked.join(", ")}. Alloy asks the player to fetch them in its CurseForge window.`);
+          return lines.join(" ");
+        },
+      };
+    },
+  },
   set_enabled: {
     plan: async (i) => {
       const inst = await instanceNamed(str(i.instance_id));
@@ -710,6 +803,9 @@ const changers: Record<string, { plan: (i: any) => Promise<Plan> }> = {
 };
 
 export const changingTools = new Set(Object.keys(changers));
+
+/** Every tool this Alloy can run, so AlloyMC offers Claude exactly those. */
+const toolNames = () => [...Object.keys(readers), ...Object.keys(changers)];
 
 // ---------- diff ----------
 

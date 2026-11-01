@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+- **One click for a whole batch.** When Claude adds several mods, they arrive as one card
+  with a tick for each (and what it adds); untick what you don't want and install the rest
+  at once. The row shows how far it's got while they install.
+- **Copy buttons on code** in Claude's answers.
+- **Configs of new mods.** Most mods write their config files the first time the game
+  starts, so Claude now starts the pack once (with your OK) before changing settings of
+  mods it just added.
+
 ## 0.4.1
 
 - **A calmer, tidier assistant panel.** One message box with "Think harder" and your

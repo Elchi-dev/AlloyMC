@@ -39,11 +39,12 @@ pub async fn assistant_send(
     request_id: String,
     mode: String,
     messages: serde_json::Value,
+    tools: Option<Vec<String>>,
 ) -> Result<Reply> {
     let (tx, rx) = oneshot::channel();
     streams.0.lock().unwrap().insert(request_id.clone(), tx);
     let id = request_id.clone();
-    let send = state.alloymc.assistant_send(&mode, &messages, |d| {
+    let send = state.alloymc.assistant_send(&mode, &messages, tools.as_deref().unwrap_or_default(), |d| {
         let _ = app.emit("assistant-delta", DeltaEvent { request_id: &id, delta: &d });
     });
     let out = tokio::select! {

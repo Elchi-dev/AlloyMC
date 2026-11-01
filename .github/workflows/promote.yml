@@ -79,4 +79,14 @@ jobs:
             gh release create "$version" artifacts/* -R Elchi-dev/AlloyMC --title "Alloy $version" --notes-file notes.md --prerelease
           fi
       - name: Tell AlloyMC about it
-        run: curl -fsS -X POST https://api.alloymc.dev/v1/launcher/releases/refresh || echo "AlloyMC will notice within 10 minutes"
+        # GitHub's release list can lag a few seconds behind a new release; ask until AlloyMC
+        # sees it (the endpoint answers at most twice a minute).
+        run: |
+          want="${{ inputs.tag }}"
+          for i in 1 2 3 4 5 6; do
+            sleep 32
+            got=$(curl -fsS -X POST https://api.alloymc.dev/v1/launcher/releases/refresh | jq -r .version || true)
+            echo "AlloyMC sees $got"
+            [ "$got" = "${want#v}" ] && exit 0
+          done
+          echo "AlloyMC will notice within 10 minutes"

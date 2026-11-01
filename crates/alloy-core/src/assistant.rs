@@ -78,13 +78,14 @@ impl AlloyMc {
 
     /// Sends the conversation and streams Claude's reply. `mode` is "fast" or "deep";
     /// `messages` are Anthropic messages. `on_delta` sees the reply as it's written.
-    pub async fn assistant_send(&self, mode: &str, messages: &Value, mut on_delta: impl FnMut(Delta)) -> Result<Reply> {
+    /// `tools` names the tools this Alloy runs; AlloyMC offers Claude only those.
+    pub async fn assistant_send(&self, mode: &str, messages: &Value, tools: &[String], mut on_delta: impl FnMut(Delta)) -> Result<Reply> {
         let token = self.token().ok_or_else(|| Error::other("Sign in to AlloyMC to use the assistant."))?;
         let mut res = self
             .http()
             .post(format!("{}/v1/assistant/messages", api_url()))
             .bearer_auth(token)
-            .json(&json!({ "mode": mode, "messages": messages }))
+            .json(&json!({ "mode": mode, "messages": messages, "tools": tools }))
             .send()
             .await?;
         if !res.status().is_success() {
@@ -191,7 +192,10 @@ impl Assembler {
                         let joined = format!("{}{}", block["thinking"].as_str().unwrap_or_default(), d["thinking"].as_str().unwrap_or_default());
                         block["thinking"] = joined.into();
                     }
-                    "signature_delta" => block["signature"] = d["signature"].clone(),
+                    "signature_delta" => {
+                        let joined = format!("{}{}", block["signature"].as_str().unwrap_or_default(), d["signature"].as_str().unwrap_or_default());
+                        block["signature"] = joined.into();
+                    }
                     _ => {}
                 }
             }
@@ -547,7 +551,7 @@ event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         let mc = AlloyMc::new(launcher, store);
         let mut texts = String::new();
         let reply = mc
-            .assistant_send("fast", &json!([{"role": "user", "content": "hi"}]), |d| {
+            .assistant_send("fast", &json!([{"role": "user", "content": "hi"}]), &["list_instances".to_string()], |d| {
                 if let Delta::Text { text, .. } = d {
                     texts.push_str(&text)
                 }
@@ -559,6 +563,7 @@ event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         assert!(head.starts_with("POST /v1/assistant/messages"));
         assert!(head.to_lowercase().contains("authorization: bearer tok123"));
         assert!(head.contains(r#""mode":"fast""#));
+        assert!(head.contains(r#""tools":["list_instances"]"#));
         assert_eq!(texts, "Let me look at the crash – ok.");
         assert_eq!(reply.content[1]["name"], "read_crash");
     }

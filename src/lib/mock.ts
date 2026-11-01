@@ -135,6 +135,26 @@ async function mockAssistant(requestId: string, messages: any[]) {
     return { type: "tool_use", id, name, input };
   };
   await sleep(500);
+  const asked = messages[0].content.map((b: any) => b.text ?? "").join(" ");
+  if (asked.includes("pack")) {
+    if (results.length === 0) {
+      const text = "Here's a first batch for the performance side:";
+      await stream(0, text);
+      const t = tool(1, "install_contents", {
+        instance_id: "fabulously-optimized",
+        items: [
+          { platform: "modrinth", project_id: "ferrite-core", why: "Uses less memory" },
+          { platform: "modrinth", project_id: "entityculling", why: "Skips drawing hidden mobs" },
+          { platform: "modrinth", project_id: "sodium", why: "Faster rendering" },
+          { platform: "modrinth", project_id: "not-a-real-mod" },
+        ],
+      });
+      return { content: [{ type: "text", text }, t], stopReason: "tool_use" };
+    }
+    const text = "Done. To give the game more room, set this in `options.txt`:\n\n```properties\nrenderDistance:12\nsimulationDistance:8\n```\n\nThen start it once to check it.";
+    await stream(0, text);
+    return { content: [{ type: "text", text }], stopReason: "end_turn" };
+  }
   if (results.length === 0) {
     const text = "Let me look at your instances first.";
     await stream(0, text);
@@ -275,7 +295,12 @@ export async function mockInvoke<T>(cmd: string, args: any = {}): Promise<T> {
       const res = await fetch(`https://api.modrinth.com/v2/project/${args.projectId}/version`);
       return r(await res.json());
     }
-    case "install_modrinth_version": await sleep(900); emitLocal("content-changed", null); return r(["Installed"]);
+    case "install_modrinth_version": await sleep(500); emitLocal("content-changed", null); return r({ installed: [args.title ?? "a mod"], unresolved: [], blocked: [] });
+    case "modrinth_project": {
+      const res = await fetch(`https://api.modrinth.com/v2/project/${args.id}`);
+      if (!res.ok) throw "Not found";
+      return r(await res.json());
+    }
     case "install_modrinth_modpack":
     case "import_modpack": await fakeJob(args.jobId, null); throw "Modpack installs run in the desktop app.";
     case "content_overview": return r({ items: args.instanceId === "create-above-beyond" ? bigPack() : content, report: { problems: [], requires: {}, requiredBy: {}, orphans: [], modCount: content.length }, blocked: [], listedMissing: false });

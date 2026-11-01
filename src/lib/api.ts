@@ -148,8 +148,8 @@ export const api = {
   retryJob: (id: string) => call<void>("retry_job", { id }),
   testLaunch: (instanceId: string) => call<{ started: boolean; diagnosis?: Diagnosis | null }>("test_launch", { instanceId }),
   assistantStatus: () => call<AssistantStatus>("assistant_status"),
-  assistantSend: (requestId: string, mode: Mode, messages: Msg[]) =>
-    call<{ content: Block[]; stopReason?: string | null }>("assistant_send", { requestId, mode, messages }),
+  assistantSend: (requestId: string, mode: Mode, messages: Msg[], tools: string[]) =>
+    call<{ content: Block[]; stopReason?: string | null }>("assistant_send", { requestId, mode, messages, tools }),
   assistantCancel: (requestId: string) => call<void>("assistant_cancel", { requestId }),
   assistantReadFile: (instanceId: string, path: string) => call<string>("assistant_read_file", { instanceId, path }),
   assistantCurrentText: (instanceId: string, path: string) => call<string | null>("assistant_current_text", { instanceId, path }),
