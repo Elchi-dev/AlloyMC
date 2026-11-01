@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "alloy"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "alloy-core",
  "base64 0.22.1",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "alloy-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",

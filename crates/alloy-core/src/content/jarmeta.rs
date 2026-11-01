@@ -177,7 +177,9 @@ pub fn read<R: Read + Seek>(reader: R, depth: u8) -> Option<JarMeta> {
             }
         }
     }
-    if meta.mods.is_empty() {
+    // Read even next to a mods.toml: many 1.12.2 jars carry a leftover mods.toml for a newer
+    // Forge that their own Forge never reads. The check picks by the instance's version.
+    {
         if let Some(json) = text(&mut zip, "mcmod.info") {
             if let Some(entries) = parse_mcmod_info(&json) {
                 meta.formats.push(Format::LegacyForge);

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.3
+
+- **The CurseForge window downloads on Windows.** It used to show CurseForge's
+  "Downloading…" and then nothing: Windows' webview holds a `.jar` back as a file that "can
+  harm your device", with no one there to answer. Alloy now takes the file request
+  CurseForge's page makes and fetches that file itself, the same way on every system,
+  then checks it against CurseForge's hash as before.
+- **No more false errors in Forge 1.12.2 packs.** Many 1.12.2 jars carry a leftover
+  `mods.toml` for a newer Forge next to the `mcmod.info` their own Forge reads, so RLCraft
+  showed three errors (EnhancedVisuals wanting CreativeCore 2, Spartan Shields wanting
+  Forge 25 and Minecraft 1.13.2). Forge instances now read `mcmod.info` below 1.13 and
+  `mods.toml` from 1.13 on. RLCraft 2.9.3 checks clean.
+
 ## 0.3.2
 
 Fixes from your first days with 0.3, and the CurseForge window.

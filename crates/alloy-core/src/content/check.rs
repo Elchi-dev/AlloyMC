@@ -122,6 +122,9 @@ impl Platform {
             Loader::Vanilla => vec![],
             Loader::Fabric => vec![Format::Fabric],
             Loader::Quilt => vec![Format::Quilt, Format::Fabric],
+            // Forge 1.12.2 and older read only mcmod.info; 1.13 and newer only mods.toml.
+            Loader::Forge if comparable_game(&self.game) && compare(&self.game, "1.13") == std::cmp::Ordering::Less => vec![Format::LegacyForge],
+            Loader::Forge if comparable_game(&self.game) => vec![Format::Forge],
             Loader::Forge => vec![Format::Forge, Format::LegacyForge],
             Loader::NeoForge if neo_new => vec![Format::NeoForge],
             Loader::NeoForge => vec![Format::NeoForge, Format::Forge],
@@ -236,6 +239,22 @@ pub fn check(instance: &Instance, files: &[Scanned], java_major: Option<u32>) ->
         if entries.is_empty() {
             let made_for = jar.formats.clone();
             let label = made_for.iter().map(|f| format_name(*f)).collect::<Vec<_>>().join(" or ");
+            // Forge on both sides of 1.13: say which Minecraft it's for, not "made for Forge".
+            let era = match (instance.loader, made_for.as_slice()) {
+                (Loader::Forge, [Format::Forge]) => Some("Minecraft 1.13 or newer"),
+                (Loader::Forge, [Format::LegacyForge]) => Some("Minecraft 1.12.2 or older"),
+                _ => None,
+            };
+            if let Some(era) = era {
+                push(
+                    &mut report,
+                    Severity::Error,
+                    m,
+                    ProblemKind::WrongGame { wanted: era.into() },
+                    format!("{name} is made for {era}, not {}.", instance.game_version),
+                );
+                continue;
+            }
             push(
                 &mut report,
                 Severity::Error,
@@ -602,6 +621,46 @@ mod tests {
         m.jar.as_mut().unwrap().nested.push(ModEntry { id: "lib".into(), version: "2.1".into(), ..Default::default() });
         let r = check(&i, &[m, jar("weird.jar", Format::Fabric, "weird", "1", vec![])], None);
         assert!(r.problems.is_empty(), "{:?}", r.problems);
+    }
+
+    /// RLCraft 2.9.3 (Forge 1.12.2) starts fine; some of its jars carry a mods.toml for a
+    /// newer Forge next to the mcmod.info Forge 1.12.2 actually reads.
+    #[test]
+    fn rlcraft_reads_what_forge_1_12_reads() {
+        let i = inst(Loader::Forge, "1.12.2", "14.23.5.2860");
+        let mut shields = jar("SpartanShields-1.12.2-1.5.5.jar", Format::LegacyForge, "spartanshields", "1.5.5", vec![]);
+        shields.jar.as_mut().unwrap().formats.insert(0, Format::Forge);
+        shields.jar.as_mut().unwrap().mods.insert(
+            0,
+            ModEntry {
+                id: "spartanshields".into(),
+                version: "${file.jarVersion}".into(),
+                deps: vec![Dep { maven: true, ..dep("forge", "[25,)", DepKind::Required) }, Dep { maven: true, ..dep("minecraft", "[1.13.2]", DepKind::Required) }],
+                format: Some(Format::Forge),
+                ..Default::default()
+            },
+        );
+        let mut visuals = jar("EnhancedVisuals_v1.4.4_mc1.12.2.jar", Format::LegacyForge, "enhancedvisuals", "1.3", vec![]);
+        visuals.jar.as_mut().unwrap().formats.insert(0, Format::Forge);
+        visuals.jar.as_mut().unwrap().mods.insert(
+            0,
+            ModEntry {
+                id: "enhancedvisuals".into(),
+                version: "1.3.0".into(),
+                deps: vec![Dep { maven: true, ..dep("creativecore", "[2.0.0,)", DepKind::Required) }],
+                format: Some(Format::Forge),
+                ..Default::default()
+            },
+        );
+        let core = jar("CreativeCore_v1.10.70_mc1.12.2.jar", Format::LegacyForge, "creativecore", "1.10", vec![]);
+        let r = check(&i, &[shields, visuals, core], Some(8));
+        assert!(r.problems.is_empty(), "{:#?}", r.problems);
+
+        // And a mod that only has a mods.toml really is for a newer Minecraft.
+        let new = jar("newmod.jar", Format::Forge, "newmod", "1", vec![]);
+        let r = check(&i, &[new], Some(8));
+        assert_eq!(r.errors(), 1);
+        assert!(r.problems[0].message.contains("1.13 or newer"), "{}", r.problems[0].message);
     }
 
     /// Homestead 2.0.1 (Fabric 1.20.1, 381 mods) starts fine; these used to be reported as
